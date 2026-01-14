@@ -1,36 +1,23 @@
-# Academic Paper MCP Server - Requirements
-# Quality-focused hybrid retrieval system
+# Academic Paper MCP v3.2 Dependencies
 
 # MCP Server
 mcp>=1.0.0
 
-# Database ORM
+# Database
 sqlalchemy>=2.0.0
-alembic>=1.13.0
-
-# Pydantic (validation & settings)
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 
-# PDF Processing
-pymupdf>=1.24.0
-
-# Embeddings & Vector DB
-sentence-transformers>=2.2.0
+# Vector Store
 chromadb>=0.4.0
+sentence-transformers>=2.2.0
 
-# Local LLM
-ollama>=0.3.0
+# PDF Processing
+pymupdf>=1.23.0
 
-# Utilities
-tenacity>=8.2.0
-numpy>=1.24.0
+# LLM
+ollama>=0.1.0
+tenacity>=8.0.0
 
-# Optional: Better tokenization
-tiktoken>=0.5.0
-
-# Development (optional)
-# pytest>=7.0.0
-# pytest-asyncio>=0.21.0
-# black>=23.0.0
-# ruff>=0.1.0
+# Optional: Development
+python-dotenv>=1.0.0

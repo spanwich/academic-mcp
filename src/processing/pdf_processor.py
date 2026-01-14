@@ -1,205 +1,176 @@
 """
-PDF text extraction with structure preservation.
+PDF text extraction with page boundaries.
+
+v3.2: Extracts text per page for page-based chunking.
 """
 
 import re
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
+
 import fitz  # PyMuPDF
 
 
 @dataclass
-class ExtractedDocument:
-    """Extracted document with structure."""
-    full_text: str
-    pages: list[dict]
-    sections: list[dict]
-    metadata: dict
-    page_count: int
+class PageText:
+    """Text content from a single page."""
+    page_number: int  # 1-indexed
+    text: str
+    char_start: int   # Position in full_text
+    char_end: int
     word_count: int
 
 
+@dataclass
+class ExtractedDocument:
+    """Complete extracted document with page boundaries."""
+    file_path: str
+    full_text: str
+    pages: list[PageText]
+    page_count: int
+    word_count: int
+    
+    def get_page(self, page_number: int) -> Optional[PageText]:
+        """Get specific page (1-indexed)."""
+        for page in self.pages:
+            if page.page_number == page_number:
+                return page
+        return None
+    
+    def get_pages(self, start: int, end: int) -> list[PageText]:
+        """Get page range (1-indexed, inclusive)."""
+        return [p for p in self.pages if start <= p.page_number <= end]
+    
+    def get_text_range(self, start_page: int, end_page: int) -> str:
+        """Get combined text for page range."""
+        pages = self.get_pages(start_page, end_page)
+        return "\n\n".join(p.text for p in pages)
+
+
 class PDFProcessor:
-    """Extract text from PDFs while preserving structure."""
+    """
+    Extract text from PDFs with page boundaries.
     
-    # Common section header patterns
-    SECTION_PATTERNS = [
-        r"^\d+\.?\s+[A-Z]",  # "1. Introduction" or "1 Introduction"
-        r"^[IVX]+\.?\s+[A-Z]",  # Roman numerals
-        r"^(Abstract|Introduction|Background|Methods?|Methodology|Results?|Discussion|Conclusion|References|Acknowledgments?)\s*$",
-    ]
+    Uses PyMuPDF (fitz) for reliable text extraction.
+    """
     
-    # Section type classification
-    SECTION_KEYWORDS = {
-        "abstract": ["abstract", "summary"],
-        "introduction": ["introduction", "background", "overview"],
-        "literature_review": ["literature", "related work", "prior work"],
-        "methodology": ["method", "methodology", "approach", "materials", "procedure", "experimental", "design"],
-        "results": ["result", "finding", "experiment", "evaluation", "analysis"],
-        "discussion": ["discussion", "interpretation"],
-        "conclusion": ["conclusion", "concluding", "future work", "summary"],
-        "references": ["reference", "bibliography", "citation"],
-        "appendix": ["appendix", "supplementary", "supplemental"]
-    }
+    def __init__(self):
+        pass
     
-    def extract_text_with_structure(self, pdf_path: str) -> ExtractedDocument:
+    def extract_with_pages(self, pdf_path: str) -> ExtractedDocument:
         """
-        Extract text from PDF preserving document structure.
+        Extract text from PDF with page boundaries.
         
         Args:
             pdf_path: Path to PDF file
             
         Returns:
-            ExtractedDocument with full text and sections
+            ExtractedDocument with full_text and per-page content
         """
+        pdf_path = Path(pdf_path)
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+        
         doc = fitz.open(pdf_path)
         
-        pages = []
-        sections = []
-        full_text = ""
+        pages: list[PageText] = []
+        full_text_parts: list[str] = []
+        current_char_pos = 0
+        total_words = 0
         
-        current_section = {
-            "title": "Preamble",
-            "content": "",
-            "page_start": 1,
-            "type": "other"
-        }
-        
-        for page_num, page in enumerate(doc, 1):
-            page_dict = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-            page_content = ""
+        for page_num in range(len(doc)):
+            page = doc[page_num]
             
-            for block in page_dict.get("blocks", []):
-                if block.get("type") == 0:  # Text block
-                    block_text, is_header, header_info = self._process_text_block(block)
-                    
-                    if is_header and header_info:
-                        # Save current section if it has content
-                        if current_section["content"].strip():
-                            current_section["page_end"] = page_num
-                            sections.append(current_section.copy())
-                        
-                        # Start new section
-                        current_section = {
-                            "title": header_info["text"],
-                            "content": "",
-                            "page_start": page_num,
-                            "type": self._classify_section(header_info["text"])
-                        }
-                    else:
-                        current_section["content"] += block_text + "\n"
-                    
-                    page_content += block_text + "\n"
+            # Extract text
+            text = page.get_text("text")
+            text = self._clean_text(text)
             
-            pages.append({
-                "page_num": page_num,
-                "content": page_content
-            })
-            full_text += page_content + "\n\n"
-        
-        # Don't forget the last section
-        if current_section["content"].strip():
-            current_section["page_end"] = len(pages)
-            sections.append(current_section)
-        
-        # Clean up sections
-        sections = self._clean_sections(sections)
-        
-        result = ExtractedDocument(
-            full_text=full_text,
-            pages=pages,
-            sections=sections,
-            metadata=dict(doc.metadata),
-            page_count=len(pages),
-            word_count=len(full_text.split())
-        )
+            # Calculate positions
+            char_start = current_char_pos
+            char_end = current_char_pos + len(text)
+            word_count = len(text.split())
+            
+            # Create page record
+            page_text = PageText(
+                page_number=page_num + 1,  # 1-indexed
+                text=text,
+                char_start=char_start,
+                char_end=char_end,
+                word_count=word_count
+            )
+            pages.append(page_text)
+            
+            # Update tracking
+            full_text_parts.append(text)
+            current_char_pos = char_end + 2  # +2 for "\n\n" separator
+            total_words += word_count
         
         doc.close()
-        return result
-    
-    def _process_text_block(self, block: dict) -> tuple[str, bool, Optional[dict]]:
-        """
-        Process a text block and detect headers.
         
-        Returns:
-            (block_text, is_header, header_info)
-        """
-        lines = block.get("lines", [])
-        block_text = ""
+        # Combine full text
+        full_text = "\n\n".join(full_text_parts)
         
-        for line in lines:
-            line_text = ""
-            max_font_size = 0
-            is_bold = False
-            
-            for span in line.get("spans", []):
-                line_text += span.get("text", "")
-                max_font_size = max(max_font_size, span.get("size", 0))
-                if "bold" in span.get("font", "").lower():
-                    is_bold = True
-            
-            line_stripped = line_text.strip()
-            
-            # Check if this line is a section header
-            if self._is_section_header(line_stripped, max_font_size, is_bold):
-                return block_text, True, {
-                    "text": line_stripped,
-                    "font_size": max_font_size,
-                    "is_bold": is_bold
-                }
-            
-            block_text += line_text
-        
-        return block_text, False, None
-    
-    def _is_section_header(self, text: str, font_size: float, is_bold: bool) -> bool:
-        """Determine if text is a section header."""
-        if len(text) > 100 or len(text) < 2:
-            return False
-        
-        # Check against patterns
-        for pattern in self.SECTION_PATTERNS:
-            if re.match(pattern, text, re.IGNORECASE):
-                return True
-        
-        # Font-based detection (headers typically larger/bold)
-        if is_bold and font_size > 11:
-            # Also check it's not just emphasized text
-            if len(text.split()) <= 6:
-                return True
-        
-        return False
-    
-    def _classify_section(self, title: str) -> str:
-        """Classify section type from title."""
-        title_lower = title.lower()
-        
-        for section_type, keywords in self.SECTION_KEYWORDS.items():
-            if any(kw in title_lower for kw in keywords):
-                return section_type
-        
-        return "other"
-    
-    def _clean_sections(self, sections: list[dict]) -> list[dict]:
-        """Clean up extracted sections."""
-        cleaned = []
-        
-        for section in sections:
-            # Skip very short sections (likely noise)
-            if len(section["content"].strip()) < 50:
-                continue
-            
-            # Clean content
-            section["content"] = self._clean_text(section["content"])
-            cleaned.append(section)
-        
-        return cleaned
+        return ExtractedDocument(
+            file_path=str(pdf_path),
+            full_text=full_text,
+            pages=pages,
+            page_count=len(pages),
+            word_count=total_words
+        )
     
     def _clean_text(self, text: str) -> str:
         """Clean extracted text."""
-        # Fix common OCR/extraction issues
-        text = re.sub(r'\s+', ' ', text)  # Normalize whitespace
-        text = re.sub(r'(?<=[a-z])-\s+(?=[a-z])', '', text)  # Fix hyphenation
-        text = text.strip()
-        return text
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Fix common PDF extraction issues
+        text = text.replace('\x00', '')  # Null bytes
+        text = re.sub(r'-\s+', '', text)  # Hyphenation at line breaks
+        
+        # Normalize line endings
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Remove excessive blank lines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        
+        return text.strip()
+    
+    def extract_page_previews(
+        self, 
+        doc: ExtractedDocument, 
+        max_chars: int = 1000
+    ) -> list[dict]:
+        """
+        Get page previews for section detection.
+        
+        Args:
+            doc: Extracted document
+            max_chars: Max characters per page preview
+            
+        Returns:
+            List of {"page": int, "preview": str}
+        """
+        previews = []
+        for page in doc.pages:
+            preview = page.text[:max_chars]
+            if len(page.text) > max_chars:
+                # Try to end at sentence boundary
+                last_period = preview.rfind('.')
+                if last_period > max_chars // 2:
+                    preview = preview[:last_period + 1]
+            
+            previews.append({
+                "page": page.page_number,
+                "preview": preview,
+                "word_count": page.word_count
+            })
+        
+        return previews
+
+
+# Convenience function
+def extract_pdf(pdf_path: str) -> ExtractedDocument:
+    """Extract PDF with page boundaries."""
+    processor = PDFProcessor()
+    return processor.extract_with_pages(pdf_path)

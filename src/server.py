@@ -1,654 +1,631 @@
-#!/usr/bin/env python3
 """
-Academic Paper Processing MCP Server
-v3: Zotero-integrated with citation key as paper_id
+Academic Paper MCP Server v3.2
+
+MCP server for academic paper analysis with:
+- Zotero integration
+- Page-based chunking
+- Section-aware retrieval
+- Verbatim extraction
 """
 
 import asyncio
-import json
+import os
+import sys
 from pathlib import Path
+from typing import Optional
+
+# Suppress library warnings (not stdout, just warnings)
+import warnings
+warnings.filterwarnings("ignore")
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import (
+    Tool,
+    TextContent,
+)
 
-from .config import get_config
-from .models.database import Database, Paper, Extraction, Chunk, ProcessingStatus
-from .models.vectors import VectorStore, ChunkDocument, PaperSummary, SectionType
-from .utils.ollama_utils import ensure_ollama_ready
+# Add parent to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Initialize
+from src.config import get_config, ensure_directories
+from src.models.database import Database, Paper, Section, Chunk, Extraction
+from src.models.vectors import VectorStore
+from src.zotero.reader import ZoteroReader
+
+# Initialize components
 config = get_config()
-server = Server("academic-papers")
-
-# Auto-start Ollama
-print("Checking Ollama status...")
-if ensure_ollama_ready(model=config.llm_model, auto_start=True):
-    print(f"✓ Ollama ready with model: {config.llm_model}")
-else:
-    print(f"⚠ Ollama not available - LLM features will fail")
-
-# Initialize database and vectors
+ensure_directories()
 database = Database(config.database_url)
 database.create_tables()
-
 vector_store = VectorStore(
-    persist_dir=config.chroma_persist_dir,
+    persist_directory=config.chroma_persist_dir,
     embedding_model=config.embedding_model
 )
 
 # Lazy-loaded components
 _zotero_reader = None
-_zotero_sync = None
 
 
-def get_zotero_reader():
-    """Get or create ZoteroReader."""
+def get_zotero_reader() -> ZoteroReader:
     global _zotero_reader
     if _zotero_reader is None:
-        from .zotero import ZoteroReader
         _zotero_reader = ZoteroReader(config.zotero_path)
     return _zotero_reader
 
 
-def get_zotero_sync():
-    """Get or create ZoteroSync."""
-    global _zotero_sync
-    if _zotero_sync is None:
-        from .zotero import ZoteroSync
-        from .processing import PDFProcessor, SemanticChunker, QualityExtractor
-        
-        _zotero_sync = ZoteroSync(
-            reader=get_zotero_reader(),
-            database=database,
-            vector_store=vector_store,
-            extractor=QualityExtractor(model=config.llm_model),
-            pdf_processor=PDFProcessor(),
-            chunker=SemanticChunker()
-        )
-    return _zotero_sync
+# Create server
+server = Server("academic-papers")
+
+
+# === Tool Definitions ===
+
+TOOLS = [
+    # Zotero Tools
+    Tool(
+        name="zotero_list_collections",
+        description="List all Zotero collections with paper counts",
+        inputSchema={"type": "object", "properties": {}}
+    ),
+    Tool(
+        name="zotero_list_items",
+        description="List papers in a Zotero collection (from Zotero database)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "collection": {"type": "string", "description": "Collection name (optional)"},
+                "limit": {"type": "integer", "description": "Max items to return", "default": 100}
+            }
+        }
+    ),
+    Tool(
+        name="list_imported_papers",
+        description="List all papers imported into the MCP database (with extraction status)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max items to return", "default": 200}
+            }
+        }
+    ),
+    
+    # Search Tools
+    Tool(
+        name="search_papers",
+        description="Find papers by topic (searches titles, abstracts)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"}
+            },
+            "required": ["query"]
+        }
+    ),
+    Tool(
+        name="search_content",
+        description="Semantic search within paper content. Returns relevant chunks with page numbers.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "paper_id": {"type": "string", "description": "Limit to specific paper (optional)"},
+                "section_type": {"type": "string", "description": "Limit to section type (optional)"},
+                "top_k": {"type": "integer", "description": "Number of results", "default": 10}
+            },
+            "required": ["query"]
+        }
+    ),
+    Tool(
+        name="search_by_citation",
+        description="Find paper by citation key (e.g., from \\cite{key})",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "citation_key": {"type": "string", "description": "Citation key like 'klein_2009_sel4'"}
+            },
+            "required": ["citation_key"]
+        }
+    ),
+    
+    # Section Tools
+    Tool(
+        name="list_sections",
+        description="Get document structure (sections with page ranges)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"}
+            },
+            "required": ["paper_id"]
+        }
+    ),
+    Tool(
+        name="get_section_summary",
+        description="Get LLM summary of a specific section",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"},
+                "section_type": {"type": "string", "description": "Section type (introduction, methodology, results, etc.)"}
+            },
+            "required": ["paper_id", "section_type"]
+        }
+    ),
+    Tool(
+        name="get_section_text",
+        description="Get full original text of a section",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"},
+                "section_type": {"type": "string", "description": "Section type"}
+            },
+            "required": ["paper_id", "section_type"]
+        }
+    ),
+    Tool(
+        name="get_section_key_points",
+        description="Get verbatim key points extracted from a section",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"},
+                "section_type": {"type": "string", "description": "Section type"}
+            },
+            "required": ["paper_id", "section_type"]
+        }
+    ),
+    
+    # Page Tools
+    Tool(
+        name="get_page",
+        description="Get text of a single page",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"},
+                "page": {"type": "integer", "description": "Page number (1-indexed)"}
+            },
+            "required": ["paper_id", "page"]
+        }
+    ),
+    Tool(
+        name="get_pages",
+        description="Get text of a page range",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"},
+                "start_page": {"type": "integer", "description": "Start page (1-indexed)"},
+                "end_page": {"type": "integer", "description": "End page (inclusive)"}
+            },
+            "required": ["paper_id", "start_page", "end_page"]
+        }
+    ),
+    
+    # Retrieval Tools
+    Tool(
+        name="get_paper_metadata",
+        description="Get paper metadata (title, authors, abstract, etc.)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"}
+            },
+            "required": ["paper_id"]
+        }
+    ),
+    Tool(
+        name="get_methodology",
+        description="Get methodology extraction (verbatim + summary)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"}
+            },
+            "required": ["paper_id"]
+        }
+    ),
+    Tool(
+        name="get_findings",
+        description="Get results and findings (verbatim quotes with page numbers)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"}
+            },
+            "required": ["paper_id"]
+        }
+    ),
+    Tool(
+        name="get_limitations",
+        description="Get limitations and future work (author-stated only)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"}
+            },
+            "required": ["paper_id"]
+        }
+    ),
+    Tool(
+        name="get_statistics",
+        description="Get statistics (only those actually in the paper)",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"}
+            },
+            "required": ["paper_id"]
+        }
+    ),
+    
+    # On-Demand Analysis
+    Tool(
+        name="query_paper",
+        description="Ask a custom question about a paper",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "paper_id": {"type": "string", "description": "Paper citation key"},
+                "question": {"type": "string", "description": "Your question"}
+            },
+            "required": ["paper_id", "question"]
+        }
+    ),
+]
 
 
 @server.list_tools()
 async def list_tools():
-    """List available MCP tools."""
-    return [
-        # === Zotero Tools ===
-        Tool(
-            name="zotero_list_collections",
-            description="List all Zotero collections with paper counts.",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        
-        Tool(
-            name="zotero_list_items",
-            description="List papers in a Zotero collection or entire library.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "collection": {
-                        "type": "string",
-                        "description": "Collection name (empty for all)"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 20
-                    }
-                }
-            }
-        ),
-        
-        Tool(
-            name="zotero_import_collection",
-            description="Import all papers from a Zotero collection. Extracts text, runs LLM analysis, and indexes for search.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "collection": {
-                        "type": "string",
-                        "description": "Collection name to import"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Force re-import existing papers"
-                    }
-                },
-                "required": ["collection"]
-            }
-        ),
-        
-        Tool(
-            name="zotero_import_item",
-            description="Import a single paper by citation key (e.g., 'lyons_2023_mixedcriticality').",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "citation_key": {
-                        "type": "string",
-                        "description": "BibTeX citation key"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "default": False
-                    }
-                },
-                "required": ["citation_key"]
-            }
-        ),
-        
-        Tool(
-            name="zotero_sync",
-            description="Sync metadata from Zotero for all imported papers (doesn't re-run LLM extraction).",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        
-        # === Search Tools ===
-        Tool(
-            name="search_papers",
-            description="Search for papers by topic. Returns paper summaries ranked by relevance.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "collection": {"type": "string", "description": "Limit to Zotero collection"},
-                    "top_k": {"type": "integer", "default": 5}
-                },
-                "required": ["query"]
-            }
-        ),
-        
-        Tool(
-            name="search_content",
-            description="Search within paper content using semantic search + LLM reranking.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "section_filter": {
-                        "type": "string",
-                        "enum": ["abstract", "introduction", "methodology", "results", "discussion", "conclusion"]
-                    },
-                    "paper_id": {"type": "string", "description": "Limit to specific paper (citation key)"},
-                    "top_k": {"type": "integer", "default": 5},
-                    "synthesize": {"type": "boolean", "default": True}
-                },
-                "required": ["query"]
-            }
-        ),
-        
-        Tool(
-            name="search_by_citation",
-            description="Find a paper by its BibTeX citation key (e.g., from \\cite{key} in LaTeX).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "citation_key": {"type": "string"}
-                },
-                "required": ["citation_key"]
-            }
-        ),
-        
-        # === Retrieval Tools ===
-        Tool(
-            name="list_papers",
-            description="List all imported papers in the database.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "collection": {"type": "string", "description": "Filter by Zotero collection"},
-                    "limit": {"type": "integer", "default": 50}
-                }
-            }
-        ),
-        
-        Tool(
-            name="get_paper_metadata",
-            description="Get full metadata for a paper (title, authors, abstract, etc.).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "paper_id": {"type": "string", "description": "Citation key"}
-                },
-                "required": ["paper_id"]
-            }
-        ),
-        
-        Tool(
-            name="get_methodology",
-            description="Get detailed methodology extraction for a paper.",
-            inputSchema={
-                "type": "object",
-                "properties": {"paper_id": {"type": "string"}},
-                "required": ["paper_id"]
-            }
-        ),
-        
-        Tool(
-            name="get_findings",
-            description="Get key findings and results for a paper.",
-            inputSchema={
-                "type": "object",
-                "properties": {"paper_id": {"type": "string"}},
-                "required": ["paper_id"]
-            }
-        ),
-        
-        Tool(
-            name="get_limitations",
-            description="Get limitations and critical analysis for a paper.",
-            inputSchema={
-                "type": "object",
-                "properties": {"paper_id": {"type": "string"}},
-                "required": ["paper_id"]
-            }
-        ),
-        
-        # === On-demand Analysis Tools ===
-        Tool(
-            name="get_paper_text",
-            description="Get full raw text of a paper. Use when extracted info isn't enough.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "paper_id": {"type": "string"},
-                    "max_chars": {"type": "integer", "default": 50000}
-                },
-                "required": ["paper_id"]
-            }
-        ),
-        
-        Tool(
-            name="query_paper",
-            description="Ask a custom question about a specific paper.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "paper_id": {"type": "string"},
-                    "question": {"type": "string"}
-                },
-                "required": ["paper_id", "question"]
-            }
-        ),
-        
-        Tool(
-            name="reextract_field",
-            description="Re-extract a specific field with more detail.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "paper_id": {"type": "string"},
-                    "field": {
-                        "type": "string",
-                        "enum": ["methodology", "findings", "limitations", "statistics"]
-                    },
-                    "focus": {"type": "string", "description": "Specific aspect to focus on"}
-                },
-                "required": ["paper_id", "field"]
-            }
-        ),
-        
-        Tool(
-            name="compare_papers",
-            description="Compare multiple papers on specific aspects.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "paper_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of citation keys"
-                    },
-                    "aspect": {
-                        "type": "string",
-                        "enum": ["methodology", "findings", "limitations", "all"]
-                    }
-                },
-                "required": ["paper_ids", "aspect"]
-            }
-        ),
-    ]
+    return TOOLS
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict):
-    """Handle MCP tool calls."""
+    """Handle tool calls."""
     
-    try:
-        # Zotero tools
-        if name == "zotero_list_collections":
-            return await _zotero_list_collections()
-        elif name == "zotero_list_items":
-            return await _zotero_list_items(arguments)
-        elif name == "zotero_import_collection":
-            return await _zotero_import_collection(arguments)
-        elif name == "zotero_import_item":
-            return await _zotero_import_item(arguments)
-        elif name == "zotero_sync":
-            return await _zotero_sync_metadata()
-        
-        # Search tools
-        elif name == "search_papers":
-            return await _search_papers(arguments)
-        elif name == "search_content":
-            return await _search_content(arguments)
-        elif name == "search_by_citation":
-            return await _search_by_citation(arguments)
-        
-        # Retrieval tools
-        elif name == "list_papers":
-            return await _list_papers(arguments)
-        elif name == "get_paper_metadata":
-            return await _get_paper_metadata(arguments)
-        elif name == "get_methodology":
-            return await _get_extraction_field(arguments["paper_id"], "methodology")
-        elif name == "get_findings":
-            return await _get_extraction_field(arguments["paper_id"], "findings")
-        elif name == "get_limitations":
-            return await _get_extraction_field(arguments["paper_id"], "limitations")
-        
-        # On-demand tools
-        elif name == "get_paper_text":
-            return await _get_paper_text(arguments)
-        elif name == "query_paper":
-            return await _query_paper(arguments)
-        elif name == "reextract_field":
-            return await _reextract_field(arguments)
-        elif name == "compare_papers":
-            return await _compare_papers(arguments)
-        
-        else:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+    # Zotero tools
+    if name == "zotero_list_collections":
+        return await _zotero_list_collections()
+    elif name == "zotero_list_items":
+        return await _zotero_list_items(arguments)
+    elif name == "list_imported_papers":
+        return await _list_imported_papers(arguments)
     
-    except Exception as e:
-        import traceback
-        return [TextContent(type="text", text=f"Error: {str(e)}\n{traceback.format_exc()}")]
+    # Search tools
+    elif name == "search_papers":
+        return await _search_papers(arguments)
+    elif name == "search_content":
+        return await _search_content(arguments)
+    elif name == "search_by_citation":
+        return await _search_by_citation(arguments)
+    
+    # Section tools
+    elif name == "list_sections":
+        return await _list_sections(arguments)
+    elif name == "get_section_summary":
+        return await _get_section_summary(arguments)
+    elif name == "get_section_text":
+        return await _get_section_text(arguments)
+    elif name == "get_section_key_points":
+        return await _get_section_key_points(arguments)
+    
+    # Page tools
+    elif name == "get_page":
+        return await _get_page(arguments)
+    elif name == "get_pages":
+        return await _get_pages(arguments)
+    
+    # Retrieval tools
+    elif name == "get_paper_metadata":
+        return await _get_paper_metadata(arguments)
+    elif name == "get_methodology":
+        return await _get_methodology(arguments)
+    elif name == "get_findings":
+        return await _get_findings(arguments)
+    elif name == "get_limitations":
+        return await _get_limitations(arguments)
+    elif name == "get_statistics":
+        return await _get_statistics(arguments)
+    
+    # Analysis tools
+    elif name == "query_paper":
+        return await _query_paper(arguments)
+    
+    return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
-# === Zotero Tool Implementations ===
+# === Tool Implementations ===
 
 async def _zotero_list_collections():
     """List Zotero collections."""
-    reader = get_zotero_reader()
-    collections = reader.get_collections()
-    
-    if not collections:
-        return [TextContent(type="text", text="No collections found in Zotero.")]
-    
-    output = "## Zotero Collections\n\n"
-    for c in collections:
-        output += f"• **{c.name}** ({c.item_count} items)\n"
-    
-    return [TextContent(type="text", text=output)]
+    try:
+        reader = get_zotero_reader()
+        collections = reader.get_collections()
+        
+        if not collections:
+            return [TextContent(type="text", text="No collections found in Zotero.")]
+        
+        output = "## Zotero Collections\n\n"
+        for c in collections:
+            output += f"• **{c.name}** ({c.item_count} items)\n"
+        
+        return [TextContent(type="text", text=output)]
+    except RuntimeError as e:
+        return [TextContent(type="text", text=f"Error: {e}\n\nPlease close Zotero and try again.")]
 
 
 async def _zotero_list_items(args: dict):
     """List items in a collection."""
-    reader = get_zotero_reader()
-    collection = args.get("collection")
-    limit = args.get("limit", 20)
+    try:
+        reader = get_zotero_reader()
+        collection = args.get("collection")
+        limit = args.get("limit", 100)  # Increased default from 20 to 100
+        
+        items = reader.get_items(collection_name=collection if collection else None, limit=limit)
+        
+        if not items:
+            return [TextContent(type="text", text="No items found.")]
+        
+        # Check which are imported
+        with database.get_session() as session:
+            imported_ids = {p.paper_id for p in session.query(Paper.paper_id).all()}
+        
+        title = f"## Items in '{collection}'" if collection else "## All Items"
+        output = f"{title} (showing {len(items)}, {len(imported_ids)} imported in database)\n\n"
+        
+        for item in items:
+            status = "✓" if item.citation_key in imported_ids else "○"
+            pdf = "📎" if item.has_pdf() else ""
+            key = item.citation_key or "(no key)"
+            output += f"{status} {pdf} **{key}**\n"
+            output += f"   {item.title[:60]}{'...' if len(item.title or '') > 60 else ''}\n"
+            output += f"   {item.get_formatted_authors()} ({item.year or 'n.d.'})\n\n"
+        
+        output += "\n✓ = imported, ○ = not imported, 📎 = has PDF"
+        
+        return [TextContent(type="text", text=output)]
+    except RuntimeError as e:
+        return [TextContent(type="text", text=f"Error: {e}\n\nPlease close Zotero and try again.")]
+
+
+async def _list_imported_papers(args: dict):
+    """List all imported papers from database."""
+    limit = args.get("limit", 200)
     
-    items = reader.get_items(collection_name=collection if collection else None, limit=limit)
-    
-    if not items:
-        return [TextContent(type="text", text="No items found.")]
-    
-    # Check which are already imported
     with database.get_session() as session:
-        imported_ids = {p.paper_id for p in session.query(Paper.paper_id).all()}
-    
-    title = f"## Items in '{collection}'" if collection else "## All Items"
-    output = f"{title}\n\n"
-    
-    for item in items:
-        status = "✓" if item.citation_key in imported_ids else "○"
-        pdf = "📎" if item.has_pdf() else ""
-        key = item.citation_key or "(no key)"
-        output += f"{status} {pdf} **{key}**\n"
-        output += f"   {item.title[:60]}{'...' if len(item.title or '') > 60 else ''}\n"
-        output += f"   {item.get_formatted_authors()} ({item.year or 'n.d.'})\n\n"
-    
-    output += f"\n✓ = imported, ○ = not imported, 📎 = has PDF"
-    
-    return [TextContent(type="text", text=output)]
+        papers = session.query(Paper).order_by(Paper.paper_id).limit(limit).all()
+        
+        if not papers:
+            return [TextContent(type="text", text="No papers imported yet.")]
+        
+        output = f"## Imported Papers ({len(papers)} total)\n\n"
+        
+        for p in papers:
+            sections = len(p.sections) if p.sections else 0
+            pages = p.page_count or 0
+            output += f"• **{p.paper_id}** ({pages} pages, {sections} sections)\n"
+            output += f"  {p.title[:60]}{'...' if len(p.title or '') > 60 else ''}\n"
+        
+        return [TextContent(type="text", text=output)]
 
-
-async def _zotero_import_collection(args: dict):
-    """Import a collection."""
-    sync = get_zotero_sync()
-    reader = get_zotero_reader()
-    
-    collection = args["collection"]
-    force = args.get("force", False)
-    
-    items = reader.get_items(collection_name=collection)
-    
-    if not items:
-        return [TextContent(type="text", text=f"No items found in collection '{collection}'")]
-    
-    output = f"## Importing '{collection}'\n\n"
-    output += f"Found {len(items)} items. Processing...\n\n"
-    
-    results = sync.import_collection(collection, force_reprocess=force)
-    
-    imported = sum(1 for r in results if r.status == "imported")
-    updated = sum(1 for r in results if r.status == "updated")
-    skipped = sum(1 for r in results if r.status == "skipped")
-    failed = sum(1 for r in results if r.status == "failed")
-    
-    output += f"**Results:**\n"
-    output += f"• ✓ Imported: {imported}\n"
-    output += f"• ↻ Updated: {updated}\n"
-    output += f"• − Skipped: {skipped}\n"
-    output += f"• ✗ Failed: {failed}\n"
-    
-    failures = [r for r in results if r.status == "failed"]
-    if failures:
-        output += f"\n**Failures:**\n"
-        for r in failures[:5]:
-            output += f"• {r.paper_id}: {r.message}\n"
-    
-    return [TextContent(type="text", text=output)]
-
-
-async def _zotero_import_item(args: dict):
-    """Import single item."""
-    sync = get_zotero_sync()
-    reader = get_zotero_reader()
-    
-    citation_key = args["citation_key"]
-    force = args.get("force", False)
-    
-    item = reader.get_item_by_citation_key(citation_key)
-    
-    if not item:
-        return [TextContent(type="text", text=f"Item not found: {citation_key}")]
-    
-    result = sync.import_item(item, force_reprocess=force)
-    
-    output = f"## Import: {citation_key}\n\n"
-    output += f"**Title:** {item.title}\n"
-    output += f"**Status:** {result.status}\n"
-    if result.message:
-        output += f"**Message:** {result.message}\n"
-    if result.time_seconds:
-        output += f"**Time:** {result.time_seconds:.1f}s\n"
-    
-    return [TextContent(type="text", text=output)]
-
-
-async def _zotero_sync_metadata():
-    """Sync metadata from Zotero."""
-    sync = get_zotero_sync()
-    results = sync.sync_metadata()
-    
-    updated = sum(1 for r in results if r.status == "updated")
-    skipped = sum(1 for r in results if r.status == "skipped")
-    
-    return [TextContent(
-        type="text",
-        text=f"## Metadata Sync Complete\n\n• Updated: {updated}\n• Skipped: {skipped}"
-    )]
-
-
-# === Search Tool Implementations ===
 
 async def _search_papers(args: dict):
-    """Search for papers."""
+    """Search papers by topic."""
     query = args["query"]
-    top_k = args.get("top_k", 5)
-    collection = args.get("collection")
     
-    results = vector_store.search_papers(query=query, top_k=top_k * 2)
-    
-    if not results:
-        return [TextContent(type="text", text="No relevant papers found.")]
-    
-    # Filter by collection if specified
-    if collection:
-        with database.get_session() as session:
-            papers_in_collection = {
-                p.paper_id for p in session.query(Paper).filter(
-                    Paper.zotero_collections.contains(collection)
-                ).all()
-            }
-        results = [r for r in results if r.document.paper_id in papers_in_collection]
-    
-    results = results[:top_k]
-    
-    output = f"## Papers matching: '{query}'\n\n"
-    for i, r in enumerate(results, 1):
-        doc = r.document
-        output += f"{i}. **{doc.title}** (`{doc.paper_id}`)\n"
-        output += f"   Domain: {doc.research_domain or 'unknown'}\n"
-        output += f"   Similarity: {r.similarity:.2f}\n\n"
-    
-    return [TextContent(type="text", text=output)]
+    with database.get_session() as session:
+        # Simple text search on title and abstract
+        papers = session.query(Paper).filter(
+            (Paper.title.ilike(f"%{query}%")) |
+            (Paper.abstract.ilike(f"%{query}%"))
+        ).limit(20).all()
+        
+        if not papers:
+            return [TextContent(type="text", text=f"No papers found for '{query}'")]
+        
+        output = f"## Papers matching '{query}'\n\n"
+        for p in papers:
+            output += f"• **{p.paper_id}**\n"
+            output += f"  {p.title[:70]}{'...' if len(p.title or '') > 70 else ''}\n"
+            output += f"  {', '.join(p.authors[:3])}{'...' if len(p.authors) > 3 else ''} ({p.year or 'n.d.'})\n\n"
+        
+        return [TextContent(type="text", text=output)]
 
 
 async def _search_content(args: dict):
-    """Search within paper content."""
-    import ollama
-    
+    """Semantic search within papers."""
     query = args["query"]
-    top_k = args.get("top_k", 5)
-    section_filter = args.get("section_filter")
-    paper_filter = args.get("paper_id")
-    synthesize = args.get("synthesize", True)
+    paper_id = args.get("paper_id")
+    section_type = args.get("section_type")
+    top_k = args.get("top_k", 10)
     
-    # Convert section filter
-    section_enum = None
-    if section_filter:
-        section_enum = SectionType(section_filter)
-    
-    results = vector_store.search_chunks(
+    results = vector_store.search(
         query=query,
-        top_k=top_k * 3,
-        section_filter=section_enum,
-        paper_filter=paper_filter
+        top_k=top_k,
+        filter_paper_id=paper_id,
+        filter_section_type=section_type
     )
     
     if not results:
-        return [TextContent(type="text", text="No relevant content found.")]
+        return [TextContent(type="text", text=f"No results for '{query}'")]
     
-    results = results[:top_k]
+    output = f"## Search results for '{query}'\n\n"
     
-    output = ""
-    
-    # Synthesize answer
-    if synthesize:
-        context = "\n\n---\n\n".join([
-            f"[{r.document.paper_id} - {r.document.section_type.value}]\n{r.document.content[:1500]}"
-            for r in results
-        ])
+    for r in results:
+        meta = r["metadata"]
+        output += f"### {meta.get('paper_id', 'unknown')} - Page {meta.get('page_number', '?')}\n"
+        output += f"*Section: {meta.get('section_type', 'unknown')} | Score: {r['score']:.2f}*\n\n"
         
-        prompt = f"""Based on these excerpts from academic papers, answer the query.
-
-Query: {query}
-
-Excerpts:
-{context}
-
-Provide a clear, comprehensive answer citing the sources by paper_id."""
-        
-        response = ollama.generate(
-            model=config.llm_model,
-            prompt=prompt,
-            options={"temperature": 0.3, "num_predict": 2000}
-        )
-        
-        output += f"## Answer\n\n{response['response']}\n\n"
-    
-    output += "## Sources\n\n"
-    for i, r in enumerate(results, 1):
-        doc = r.document
-        output += f"{i}. `{doc.paper_id}` ({doc.section_type.value}) - sim: {r.similarity:.2f}\n"
+        # Show content preview
+        content = r.get("content", "")[:500]
+        output += f"{content}{'...' if len(r.get('content', '')) > 500 else ''}\n\n"
+        output += "---\n\n"
     
     return [TextContent(type="text", text=output)]
 
 
 async def _search_by_citation(args: dict):
     """Find paper by citation key."""
-    citation_key = args["citation_key"]
+    key = args["citation_key"]
     
     with database.get_session() as session:
-        paper = session.query(Paper).filter(Paper.paper_id == citation_key).first()
+        paper = session.query(Paper).filter(Paper.paper_id == key).first()
         
         if not paper:
-            # Try to find in Zotero
-            reader = get_zotero_reader()
-            item = reader.get_item_by_citation_key(citation_key)
-            
-            if item:
-                return [TextContent(
-                    type="text",
-                    text=f"Paper `{citation_key}` found in Zotero but not imported.\n\n"
-                         f"**Title:** {item.title}\n"
-                         f"**Authors:** {item.get_formatted_authors()}\n\n"
-                         f"Use `zotero_import_item` to import it."
-                )]
-            
-            return [TextContent(type="text", text=f"Paper not found: {citation_key}")]
+            return [TextContent(type="text", text=f"Paper not found: {key}")]
         
-        output = f"## {paper.title}\n\n"
-        output += f"**Citation key:** `{paper.paper_id}`\n"
-        output += f"**Authors:** {', '.join(paper.authors) if paper.authors else 'Unknown'}\n"
-        output += f"**Year:** {paper.year or 'Unknown'}\n"
-        output += f"**Collections:** {', '.join(paper.zotero_collections) if paper.zotero_collections else 'None'}\n\n"
-        output += f"**Abstract:** {paper.abstract[:500] if paper.abstract else 'Not available'}...\n"
+        output = f"## {key}\n\n"
+        output += f"**Title:** {paper.title}\n\n"
+        output += f"**Authors:** {', '.join(paper.authors)}\n\n"
+        output += f"**Year:** {paper.year or 'n.d.'}\n\n"
+        output += f"**Venue:** {paper.journal_or_venue or 'Unknown'}\n\n"
+        output += f"**Pages:** {paper.page_count}\n\n"
+        
+        if paper.abstract:
+            output += f"**Abstract:**\n{paper.abstract}\n"
         
         return [TextContent(type="text", text=output)]
 
 
-# === Retrieval Tool Implementations ===
-
-async def _list_papers(args: dict):
-    """List imported papers."""
-    limit = args.get("limit", 50)
-    collection = args.get("collection")
+async def _list_sections(args: dict):
+    """List sections of a paper."""
+    paper_id = args["paper_id"]
     
     with database.get_session() as session:
-        query = session.query(Paper)
+        sections = session.query(Section).filter(
+            Section.paper_id == paper_id
+        ).order_by(Section.section_index).all()
         
-        if collection:
-            # Filter by collection (JSON contains)
-            query = query.filter(Paper.zotero_collections.contains([collection]))
+        if not sections:
+            return [TextContent(type="text", text=f"No sections found for {paper_id}")]
         
-        papers = query.limit(limit).all()
+        output = f"## Document Structure: {paper_id}\n\n"
         
-        if not papers:
-            return [TextContent(type="text", text="No papers imported yet.")]
+        for s in sections:
+            output += f"• **{s.section_type}** (pages {s.page_start}-{s.page_end})\n"
+            if s.section_title:
+                output += f"  *{s.section_title}*\n"
         
-        output = f"## Imported Papers ({len(papers)})\n\n"
-        for p in papers:
-            collections = ", ".join(p.zotero_collections) if p.zotero_collections else ""
-            output += f"• **{p.paper_id}**: {p.title[:50]}...\n"
-            output += f"  {p.year or 'n.d.'} | {collections}\n\n"
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_section_summary(args: dict):
+    """Get section summary."""
+    paper_id = args["paper_id"]
+    section_type = args["section_type"]
+    
+    with database.get_session() as session:
+        section = session.query(Section).filter(
+            Section.paper_id == paper_id,
+            Section.section_type == section_type
+        ).first()
+        
+        if not section:
+            return [TextContent(type="text", text=f"Section '{section_type}' not found in {paper_id}")]
+        
+        output = f"## {section_type.title()} Summary: {paper_id}\n\n"
+        output += f"*Pages {section.page_start}-{section.page_end}*\n\n"
+        output += section.summary or "*No summary available*"
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_section_text(args: dict):
+    """Get full section text."""
+    paper_id = args["paper_id"]
+    section_type = args["section_type"]
+    
+    with database.get_session() as session:
+        paper = session.query(Paper).filter(Paper.paper_id == paper_id).first()
+        section = session.query(Section).filter(
+            Section.paper_id == paper_id,
+            Section.section_type == section_type
+        ).first()
+        
+        if not paper or not section:
+            return [TextContent(type="text", text=f"Section '{section_type}' not found in {paper_id}")]
+        
+        text = paper.full_text[section.char_start:section.char_end]
+        
+        output = f"## {section_type.title()}: {paper_id}\n\n"
+        output += f"*Pages {section.page_start}-{section.page_end}*\n\n"
+        output += text
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_section_key_points(args: dict):
+    """Get section key points."""
+    paper_id = args["paper_id"]
+    section_type = args["section_type"]
+    
+    with database.get_session() as session:
+        section = session.query(Section).filter(
+            Section.paper_id == paper_id,
+            Section.section_type == section_type
+        ).first()
+        
+        if not section:
+            return [TextContent(type="text", text=f"Section '{section_type}' not found in {paper_id}")]
+        
+        output = f"## Key Points from {section_type.title()}: {paper_id}\n\n"
+        
+        if section.key_points_verbatim:
+            for i, point in enumerate(section.key_points_verbatim, 1):
+                text = point.get("text", str(point))
+                page = point.get("page", "?")
+                output += f"{i}. \"{text}\"\n   *— Page {page}*\n\n"
+        else:
+            output += "*No key points extracted*"
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_page(args: dict):
+    """Get single page text."""
+    paper_id = args["paper_id"]
+    page = args["page"]
+    
+    with database.get_session() as session:
+        chunk = session.query(Chunk).filter(
+            Chunk.paper_id == paper_id,
+            Chunk.page_number == page
+        ).first()
+        
+        if not chunk:
+            return [TextContent(type="text", text=f"Page {page} not found in {paper_id}")]
+        
+        output = f"## Page {page}: {paper_id}\n\n"
+        output += chunk.content
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_pages(args: dict):
+    """Get page range text."""
+    paper_id = args["paper_id"]
+    start = args["start_page"]
+    end = args["end_page"]
+    
+    with database.get_session() as session:
+        chunks = session.query(Chunk).filter(
+            Chunk.paper_id == paper_id,
+            Chunk.page_number >= start,
+            Chunk.page_number <= end
+        ).order_by(Chunk.page_number).all()
+        
+        if not chunks:
+            return [TextContent(type="text", text=f"Pages {start}-{end} not found in {paper_id}")]
+        
+        output = f"## Pages {start}-{end}: {paper_id}\n\n"
+        
+        for chunk in chunks:
+            output += f"### Page {chunk.page_number}\n\n"
+            output += chunk.content
+            output += "\n\n"
         
         return [TextContent(type="text", text=output)]
 
@@ -663,242 +640,175 @@ async def _get_paper_metadata(args: dict):
         if not paper:
             return [TextContent(type="text", text=f"Paper not found: {paper_id}")]
         
-        output = f"# {paper.title}\n\n"
-        output += f"**Citation key:** `{paper.paper_id}`\n"
-        output += f"**Authors:** {', '.join(paper.authors) if paper.authors else 'Unknown'}\n"
-        output += f"**Year:** {paper.year or 'Unknown'}\n"
-        output += f"**Venue:** {paper.journal_or_venue or 'Unknown'}\n"
-        output += f"**DOI:** {paper.doi or 'None'}\n"
-        output += f"**Collections:** {', '.join(paper.zotero_collections) if paper.zotero_collections else 'None'}\n"
-        output += f"**Pages:** {paper.page_count} | **Words:** {paper.word_count}\n\n"
-        output += f"## Abstract\n\n{paper.abstract or 'Not available'}\n"
+        output = f"## {paper_id}\n\n"
+        output += f"**Title:** {paper.title}\n\n"
+        output += f"**Authors:** {', '.join(paper.authors)}\n\n"
+        output += f"**Year:** {paper.year or 'n.d.'}\n\n"
+        output += f"**Venue:** {paper.journal_or_venue or 'Unknown'}\n\n"
+        output += f"**DOI:** {paper.doi or 'None'}\n\n"
+        output += f"**Pages:** {paper.page_count}\n\n"
+        output += f"**Words:** {paper.word_count}\n\n"
+        output += f"**Collections:** {', '.join(paper.zotero_collections) if paper.zotero_collections else 'None'}\n\n"
         
-        if paper.extraction:
-            e = paper.extraction
-            output += f"\n**Domain:** {e.research_domain or 'Unknown'}\n"
-            output += f"**Type:** {e.paper_type or 'Unknown'}\n"
-            output += f"**Keywords:** {', '.join(e.keywords) if e.keywords else 'None'}\n"
+        if paper.abstract:
+            output += f"**Abstract:**\n{paper.abstract}\n"
         
         return [TextContent(type="text", text=output)]
 
 
-async def _get_extraction_field(paper_id: str, field_type: str):
-    """Get specific extraction field."""
+async def _get_methodology(args: dict):
+    """Get methodology extraction."""
+    paper_id = args["paper_id"]
+    
     with database.get_session() as session:
         extraction = session.query(Extraction).filter(
             Extraction.paper_id == paper_id
         ).first()
         
         if not extraction:
-            return [TextContent(type="text", text=f"Paper not found or not processed: {paper_id}")]
+            return [TextContent(type="text", text=f"No extraction found for {paper_id}")]
         
-        if field_type == "methodology":
-            output = f"# Methodology: {paper_id}\n\n"
-            output += f"## Summary\n{extraction.methodology_summary or 'Not available'}\n\n"
-            output += f"## Study Design\n{extraction.study_design or 'Not available'}\n\n"
-            output += f"## Sample\n{extraction.sample_description or 'Not available'}\n"
-            output += f"Size: {extraction.sample_size or 'Not specified'}\n\n"
-            output += f"## Data Collection\n{', '.join(extraction.data_collection_methods) if extraction.data_collection_methods else 'Not available'}\n\n"
-            output += f"## Analysis Methods\n{', '.join(extraction.analysis_methods) if extraction.analysis_methods else 'Not available'}\n\n"
-            output += f"## Statistical Tests\n{', '.join(extraction.statistical_tests) if extraction.statistical_tests else 'Not available'}\n\n"
-            output += f"## Detailed Methodology\n{extraction.methodology_detailed or 'Not available'}\n"
+        output = f"## Methodology: {paper_id}\n\n"
         
-        elif field_type == "findings":
-            output = f"# Findings: {paper_id}\n\n"
-            
-            if extraction.key_findings:
-                output += "## Key Findings\n\n"
-                for i, finding in enumerate(extraction.key_findings, 1):
-                    if isinstance(finding, dict):
-                        output += f"{i}. **{finding.get('finding', 'N/A')}**\n"
-                        output += f"   Evidence: {finding.get('evidence', 'N/A')}\n\n"
-                    else:
-                        output += f"{i}. {finding}\n"
-            
-            if extraction.effect_sizes:
-                output += "\n## Effect Sizes\n\n"
-                for es in extraction.effect_sizes:
-                    if isinstance(es, dict):
-                        output += f"• {es.get('measure', 'N/A')}: {es.get('value', 'N/A')} ({es.get('context', '')})\n"
+        if extraction.methodology_verbatim:
+            output += "### Methodology (from paper)\n\n"
+            output += f"{extraction.methodology_verbatim}\n\n"
         
-        elif field_type == "limitations":
-            output = f"# Limitations: {paper_id}\n\n"
-            
-            if extraction.limitations:
-                for i, lim in enumerate(extraction.limitations, 1):
-                    if isinstance(lim, dict):
-                        output += f"{i}. **{lim.get('limitation', 'N/A')}**\n"
-                        output += f"   Impact: {lim.get('impact', 'N/A')}\n"
-                        ack = "Yes" if lim.get('acknowledged') else "No"
-                        output += f"   Acknowledged by authors: {ack}\n\n"
-                    else:
-                        output += f"{i}. {lim}\n"
-            else:
-                output += "No limitations extracted.\n"
-            
-            output += f"\n## Future Research\n"
-            if extraction.future_research:
-                for fr in extraction.future_research:
-                    output += f"• {fr}\n"
-            else:
-                output += "Not available\n"
+        if extraction.evaluation_setup_verbatim:
+            output += "### Evaluation Setup (from paper)\n\n"
+            output += f"{extraction.evaluation_setup_verbatim}\n\n"
+        
+        if extraction.software_tools:
+            output += f"### Tools\n{', '.join(extraction.software_tools)}\n\n"
+        
+        if extraction.methodology_summary:
+            output += f"---\n*LLM Summary:* {extraction.methodology_summary}\n"
         
         return [TextContent(type="text", text=output)]
 
 
-# === On-demand Analysis Implementations ===
-
-async def _get_paper_text(args: dict):
-    """Get full paper text."""
+async def _get_findings(args: dict):
+    """Get findings extraction."""
     paper_id = args["paper_id"]
-    max_chars = args.get("max_chars", 50000)
     
     with database.get_session() as session:
-        paper = session.query(Paper).filter(Paper.paper_id == paper_id).first()
+        extraction = session.query(Extraction).filter(
+            Extraction.paper_id == paper_id
+        ).first()
         
-        if not paper:
-            return [TextContent(type="text", text=f"Paper not found: {paper_id}")]
+        if not extraction:
+            return [TextContent(type="text", text=f"No extraction found for {paper_id}")]
         
-        if paper.full_text:
-            text = paper.full_text[:max_chars]
-            truncated = len(paper.full_text) > max_chars
+        output = f"## Findings: {paper_id}\n\n"
+        
+        if extraction.contributions_verbatim:
+            output += "### Contributions (from paper)\n\n"
+            for i, item in enumerate(extraction.contributions_verbatim, 1):
+                text = item.get("text", str(item))
+                section = item.get("section", "?")
+                page = item.get("page", "?")
+                output += f"{i}. \"{text}\"\n   *— {section}, Page {page}*\n\n"
+        
+        if extraction.results_verbatim:
+            output += "### Results (from paper)\n\n"
+            for i, item in enumerate(extraction.results_verbatim, 1):
+                text = item.get("text", str(item))
+                section = item.get("section", "?")
+                page = item.get("page", "?")
+                output += f"{i}. \"{text}\"\n   *— {section}, Page {page}*\n\n"
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_limitations(args: dict):
+    """Get limitations extraction."""
+    paper_id = args["paper_id"]
+    
+    with database.get_session() as session:
+        extraction = session.query(Extraction).filter(
+            Extraction.paper_id == paper_id
+        ).first()
+        
+        if not extraction:
+            return [TextContent(type="text", text=f"No extraction found for {paper_id}")]
+        
+        output = f"## Limitations: {paper_id}\n\n"
+        
+        if extraction.limitations_verbatim:
+            output += "### Limitations (from paper)\n\n"
+            for i, item in enumerate(extraction.limitations_verbatim, 1):
+                text = item.get("text", str(item))
+                section = item.get("section", "?")
+                page = item.get("page", "?")
+                output += f"{i}. \"{text}\"\n   *— {section}, Page {page}*\n\n"
         else:
-            chunks = session.query(Chunk).filter(
-                Chunk.paper_id == paper_id
-            ).order_by(Chunk.chunk_index).all()
-            
-            text = "\n\n".join(c.content for c in chunks)[:max_chars]
-            truncated = len("\n\n".join(c.content for c in chunks)) > max_chars
+            output += "*No limitations explicitly stated by authors*\n\n"
         
-        header = f"# Full Text: {paper.title}\n\n"
-        if truncated:
-            header += f"*Truncated to {max_chars:,} characters*\n\n"
-        header += "---\n\n"
+        if extraction.future_work_verbatim:
+            output += "### Future Work (from paper)\n\n"
+            for item in extraction.future_work_verbatim:
+                text = item.get("text", str(item))
+                section = item.get("section", "?")
+                page = item.get("page", "?")
+                output += f"• \"{text}\" *— {section}, Page {page}*\n"
         
-        return [TextContent(type="text", text=header + text)]
+        return [TextContent(type="text", text=output)]
+
+
+async def _get_statistics(args: dict):
+    """Get statistics extraction."""
+    paper_id = args["paper_id"]
+    
+    with database.get_session() as session:
+        extraction = session.query(Extraction).filter(
+            Extraction.paper_id == paper_id
+        ).first()
+        
+        if not extraction:
+            return [TextContent(type="text", text=f"No extraction found for {paper_id}")]
+        
+        output = f"## Statistics: {paper_id}\n\n"
+        
+        if extraction.statistics_verbatim:
+            output += "*These are exact quotes from the paper:*\n\n"
+            for item in extraction.statistics_verbatim:
+                text = item.get("text", str(item))
+                section = item.get("section", "?")
+                page = item.get("page", "?")
+                output += f"• \"{text}\"\n  *— {section}, Page {page}*\n\n"
+        else:
+            output += "*No quantitative statistics found in paper*"
+        
+        return [TextContent(type="text", text=output)]
 
 
 async def _query_paper(args: dict):
-    """Ask custom question about paper."""
-    import ollama
-    
+    """Custom query about a paper."""
     paper_id = args["paper_id"]
     question = args["question"]
     
     with database.get_session() as session:
         paper = session.query(Paper).filter(Paper.paper_id == paper_id).first()
         
-        if not paper:
-            return [TextContent(type="text", text=f"Paper not found: {paper_id}")]
+        if not paper or not paper.full_text:
+            return [TextContent(type="text", text=f"Paper not found or no text: {paper_id}")]
         
-        text = paper.full_text[:25000] if paper.full_text else ""
+        # Use extractor for custom query
+        from src.processing.extractor import SectionExtractor
+        extractor = SectionExtractor(model=config.llm_model, host=config.ollama_host)
         
-        if not text:
-            chunks = session.query(Chunk).filter(
-                Chunk.paper_id == paper_id
-            ).order_by(Chunk.chunk_index).all()
-            text = "\n\n".join(c.content for c in chunks)[:25000]
-    
-    prompt = f"""Answer this question about the academic paper.
-
-Paper: {paper.title}
-Question: {question}
-
-Paper text:
-{text}
-
-Provide a detailed, accurate answer. If the information is not in the paper, say so."""
-
-    response = ollama.generate(
-        model=config.llm_model,
-        prompt=prompt,
-        options={"temperature": 0.2, "num_predict": 2000}
-    )
-    
-    return [TextContent(type="text", text=f"## {question}\n\n{response['response']}")]
-
-
-async def _reextract_field(args: dict):
-    """Re-extract field with more detail."""
-    from .processing import QualityExtractor
-    
-    paper_id = args["paper_id"]
-    field = args["field"]
-    focus = args.get("focus", "")
-    
-    with database.get_session() as session:
-        paper = session.query(Paper).filter(Paper.paper_id == paper_id).first()
+        answer = extractor.extract_custom(paper.full_text, question)
         
-        if not paper:
-            return [TextContent(type="text", text=f"Paper not found: {paper_id}")]
+        output = f"## Answer: {paper_id}\n\n"
+        output += f"**Question:** {question}\n\n"
+        output += f"**Answer:**\n{answer}"
         
-        text = paper.full_text[:35000] if paper.full_text else ""
-    
-    extractor = QualityExtractor(model=config.llm_model)
-    result = extractor.reextract_field(text, field, focus)
-    
-    return [TextContent(type="text", text=f"## Re-extracted: {field}\n\n{result}")]
+        return [TextContent(type="text", text=output)]
 
 
-async def _compare_papers(args: dict):
-    """Compare multiple papers."""
-    import ollama
-    
-    paper_ids = args["paper_ids"]
-    aspect = args["aspect"]
-    
-    papers_data = []
-    
-    with database.get_session() as session:
-        for pid in paper_ids:
-            paper = session.query(Paper).filter(Paper.paper_id == pid).first()
-            if paper and paper.extraction:
-                e = paper.extraction
-                data = {
-                    "paper_id": pid,
-                    "title": paper.title,
-                    "year": paper.year
-                }
-                
-                if aspect in ["methodology", "all"]:
-                    data["methodology"] = e.methodology_summary
-                    data["study_design"] = e.study_design
-                    data["sample_size"] = e.sample_size
-                
-                if aspect in ["findings", "all"]:
-                    data["key_findings"] = e.key_findings[:3] if e.key_findings else []
-                
-                if aspect in ["limitations", "all"]:
-                    data["limitations"] = e.limitations[:3] if e.limitations else []
-                
-                papers_data.append(data)
-    
-    if len(papers_data) < 2:
-        return [TextContent(type="text", text="Need at least 2 papers to compare.")]
-    
-    prompt = f"""Compare these academic papers on {aspect}:
-
-{json.dumps(papers_data, indent=2)}
-
-Provide a structured comparison:
-1. Key similarities
-2. Key differences  
-3. Relative strengths and weaknesses
-4. Summary recommendation"""
-
-    response = ollama.generate(
-        model=config.llm_model,
-        prompt=prompt,
-        options={"temperature": 0.3, "num_predict": 2500}
-    )
-    
-    return [TextContent(type="text", text=f"## Comparison: {aspect}\n\n{response['response']}")]
-
-
-# === Main Entry Point ===
+# === Main ===
 
 async def main():
-    """Run the MCP server."""
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

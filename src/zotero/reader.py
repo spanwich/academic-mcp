@@ -3,14 +3,14 @@ Read from Zotero and Better BibTeX databases.
 Read-only access - safe to use while Zotero is running (via copy).
 """
 
-import shutil
 import sqlite3
+import shutil
 import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
+from contextlib import contextmanager
 
-from .models import ZoteroCollection, ZoteroItem
+from .models import ZoteroItem, ZoteroCollection
 
 
 class ZoteroReader:
@@ -94,6 +94,9 @@ class ZoteroReader:
     @contextmanager
     def _get_zotero_db(self):
         """Get connection to Zotero database (using copy)."""
+        # Check if database is locked by Zotero
+        self._check_database_lock()
+        
         # Copy to temp file to avoid locking
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
             tmp_path = Path(tmp.name)
@@ -102,10 +105,46 @@ class ZoteroReader:
             shutil.copy2(self.zotero_db_path, tmp_path)
             conn = sqlite3.connect(tmp_path)
             conn.row_factory = sqlite3.Row
+            
+            # Verify the copy is valid
+            try:
+                conn.execute("SELECT COUNT(*) FROM items").fetchone()
+            except sqlite3.DatabaseError as e:
+                raise RuntimeError(
+                    f"Database copy is corrupted. Zotero may be running.\n"
+                    f"Please close Zotero and try again.\n"
+                    f"Error: {e}"
+                )
+            
             yield conn
             conn.close()
         finally:
             tmp_path.unlink(missing_ok=True)
+    
+    def _check_database_lock(self):
+        """Check if Zotero database is locked."""
+        # Check for lock file
+        lock_file = self.zotero_db_path.parent / ".zotero-lock"
+        if lock_file.exists():
+            raise RuntimeError(
+                "Zotero database is locked (.zotero-lock exists).\n"
+                "Please close Zotero before importing."
+            )
+        
+        # Try to open database directly to check lock
+        try:
+            conn = sqlite3.connect(self.zotero_db_path, timeout=1)
+            # Try to get an exclusive lock briefly
+            conn.execute("BEGIN IMMEDIATE")
+            conn.rollback()
+            conn.close()
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() or "busy" in str(e).lower():
+                raise RuntimeError(
+                    "Zotero database is locked.\n"
+                    "Please close Zotero before importing."
+                )
+            # Other errors - might be okay, continue with copy approach
     
     @contextmanager
     def _get_bbt_db(self):
@@ -113,6 +152,19 @@ class ZoteroReader:
         if not self.bbt_db_path.exists():
             yield None
             return
+        
+        # Check if locked (same process as Zotero would lock it)
+        try:
+            conn = sqlite3.connect(self.bbt_db_path, timeout=1)
+            conn.execute("BEGIN IMMEDIATE")
+            conn.rollback()
+            conn.close()
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() or "busy" in str(e).lower():
+                raise RuntimeError(
+                    "Better BibTeX database is locked.\n"
+                    "Please close Zotero before importing."
+                )
         
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
             tmp_path = Path(tmp.name)

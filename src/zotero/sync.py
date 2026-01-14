@@ -1,35 +1,68 @@
 """
 Zotero sync and import logic.
-Handles importing papers from Zotero into the MCP database.
+
+v3.2: Page-based chunking with section detection.
 """
 
 import hashlib
 import time
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
+from ..models.database import (
+    Database, Paper, Section, Chunk, Extraction,
+    ProcessingStatus, SectionType
+)
+from ..models.vectors import VectorStore
+from ..processing.pdf_processor import PDFProcessor, ExtractedDocument
+from ..processing.section_detector import SectionDetector, DetectedSection
+from ..processing.chunker import PageChunker
+from ..processing.extractor import SectionExtractor
 from .reader import ZoteroReader
-from .models import ZoteroItem, ImportResult
+from .models import ZoteroItem
+
+
+@dataclass
+class ImportResult:
+    """Result of importing a paper."""
+    paper_id: str
+    status: str  # imported | updated | skipped | failed | merged
+    message: Optional[str] = None
+    time_seconds: Optional[float] = None
+    page_count: Optional[int] = None
+    section_count: Optional[int] = None
 
 
 class ZoteroSync:
     """
-    Sync papers from Zotero to MCP database.
+    Sync papers from Zotero into MCP database.
+    
+    Flow:
+    1. Read item from Zotero
+    2. Extract PDF with page boundaries
+    3. Detect sections with LLM
+    4. Extract content per section
+    5. Create page-based chunks
+    6. Index vectors
+    7. Store everything
     """
     
     def __init__(
         self,
         reader: ZoteroReader,
-        database,  # Database instance
-        vector_store,  # VectorStore instance
-        extractor,  # QualityExtractor instance
-        pdf_processor,  # PDFProcessor instance
-        chunker,  # SemanticChunker instance
+        database: Database,
+        vector_store: VectorStore,
+        section_detector: SectionDetector,
+        extractor: SectionExtractor,
+        pdf_processor: PDFProcessor,
+        chunker: PageChunker
     ):
         self.reader = reader
         self.db = database
         self.vectors = vector_store
+        self.section_detector = section_detector
         self.extractor = extractor
         self.pdf_processor = pdf_processor
         self.chunker = chunker
@@ -40,420 +73,248 @@ class ZoteroSync:
         force_reprocess: bool = False
     ) -> ImportResult:
         """
-        Import a single Zotero item into MCP database.
+        Import a single Zotero item.
         
         Args:
-            zotero_item: The Zotero item to import
-            force_reprocess: Re-run LLM extraction even if paper exists
+            zotero_item: Item from Zotero reader
+            force_reprocess: Reprocess even if exists
             
         Returns:
-            ImportResult with status and details
+            ImportResult with status
         """
         start_time = time.time()
         
-        # Must have citation key
-        if not zotero_item.citation_key:
+        paper_id = zotero_item.citation_key
+        if not paper_id:
             return ImportResult(
+                paper_id="unknown",
                 status="skipped",
-                paper_id="",
                 message="No citation key (Better BibTeX not configured?)"
             )
         
-        paper_id = zotero_item.citation_key
-        
-        # Must have PDF
+        # Check for PDF
         if not zotero_item.has_pdf():
             return ImportResult(
-                status="skipped",
                 paper_id=paper_id,
-                citation_key=paper_id,
+                status="skipped",
                 message="No PDF attachment"
             )
         
         # Calculate file hash for deduplication
-        file_hash = self._calculate_hash(zotero_item.pdf_path)
-        
-        # Import models here to avoid circular imports
-        from ..models.database import Paper, Extraction, Chunk, ProcessingStatus
-        from ..models.vectors import ChunkDocument, PaperSummary, SectionType
+        pdf_path = zotero_item.pdf_path
+        file_hash = self._calculate_hash(pdf_path)
         
         # Check for existing paper
         with self.db.get_session() as session:
-            # Check by hash first (catches duplicates from any source)
+            # Check by hash first (catches duplicates)
             existing_by_hash = session.query(Paper).filter(
                 Paper.file_hash == file_hash
             ).first()
             
-            if existing_by_hash:
+            if existing_by_hash and not force_reprocess:
                 if existing_by_hash.paper_id == paper_id:
-                    # Same paper, same key - update Zotero metadata
-                    self._update_from_zotero(existing_by_hash, zotero_item)
+                    # Same paper, update metadata from Zotero
+                    self._update_metadata(session, existing_by_hash, zotero_item)
                     session.commit()
-                    
                     return ImportResult(
-                        status="updated",
                         paper_id=paper_id,
-                        citation_key=paper_id,
-                        message="Updated Zotero metadata",
-                        time_seconds=time.time() - start_time
+                        status="updated",
+                        message="Metadata updated from Zotero"
                     )
                 else:
-                    # Same PDF, different key - merge (add Zotero link)
-                    self._merge_zotero_info(existing_by_hash, zotero_item)
-                    session.commit()
-                    
+                    # Same PDF, different key - merge
                     return ImportResult(
+                        paper_id=paper_id,
                         status="merged",
-                        paper_id=existing_by_hash.paper_id,
-                        citation_key=paper_id,
-                        message=f"Merged with existing paper {existing_by_hash.paper_id}",
-                        time_seconds=time.time() - start_time
+                        message=f"Same PDF as {existing_by_hash.paper_id}"
                     )
             
-            # Check by paper_id (citation key)
-            existing_by_id = session.get(Paper, paper_id)
+            # Check by paper_id
+            existing_by_id = session.query(Paper).filter(
+                Paper.paper_id == paper_id
+            ).first()
             
             if existing_by_id and not force_reprocess:
-                # Already imported with this citation key
-                self._update_from_zotero(existing_by_id, zotero_item)
-                session.commit()
-                
                 return ImportResult(
-                    status="updated",
                     paper_id=paper_id,
-                    citation_key=paper_id,
-                    message="Updated Zotero metadata",
-                    time_seconds=time.time() - start_time
+                    status="skipped",
+                    message="Already imported"
                 )
+            
+            # Delete existing if force reprocess
+            if existing_by_id and force_reprocess:
+                session.delete(existing_by_id)
+                session.flush()
+                # Also delete from vector store
+                self.vectors.delete_paper(paper_id)
         
-        # New paper - full import
+        # Process the paper
         try:
-            # Step 1: Extract PDF text
-            doc = self.pdf_processor.extract_text_with_structure(
-                str(zotero_item.pdf_path)
-            )
-            
-            # Step 2: Create chunks
-            chunks = self.chunker.chunk_document(doc)
-            
-            # Step 3: LLM extraction (3 passes)
-            extractions = self.extractor.extract_all(doc)
-            
-            # Step 4: Save to database
-            with self.db.get_session() as session:
-                # Delete existing if force reprocess
-                if force_reprocess:
-                    existing = session.get(Paper, paper_id)
-                    if existing:
-                        session.delete(existing)
-                        session.flush()
-                
-                paper = Paper(
-                    paper_id=paper_id,
-                    
-                    # Zotero linking
-                    zotero_key=zotero_item.item_key,
-                    zotero_item_id=zotero_item.item_id,
-                    zotero_collections=zotero_item.collections,
-                    
-                    # File info
-                    file_path=str(zotero_item.pdf_path),
-                    file_hash=file_hash,
-                    
-                    # Metadata FROM ZOTERO
-                    title=zotero_item.title,
-                    authors=zotero_item.authors,
-                    abstract=zotero_item.abstract,
-                    publication_date=zotero_item.date,
-                    year=zotero_item.year,
-                    journal_or_venue=zotero_item.publication_title,
-                    doi=zotero_item.doi,
-                    
-                    # Processing info
-                    processing_status=ProcessingStatus.COMPLETED,
-                    processing_model=self.extractor.model,
-                    processed_at=datetime.utcnow(),
-                    page_count=doc.page_count,
-                    word_count=doc.word_count,
-                    
-                    # Full text for on-demand queries
-                    full_text=doc.full_text
-                )
-                
-                extraction = Extraction(
-                    paper_id=paper_id,
-                    
-                    # Methodology (LLM Pass 1)
-                    methodology_summary=self._ensure_string(
-                        extractions.get("methodology_summary")
-                    ),
-                    methodology_detailed=self._ensure_string(
-                        extractions.get("methodology_detailed")
-                    ),
-                    study_design=self._ensure_string(
-                        extractions.get("study_design")
-                    ),
-                    sample_description=self._ensure_string(
-                        extractions.get("sample_description")
-                    ),
-                    sample_size=self._ensure_string(
-                        extractions.get("sample_size")
-                    ),
-                    data_collection_methods=self._ensure_list(
-                        extractions.get("data_collection_methods")
-                    ),
-                    analysis_methods=self._ensure_list(
-                        extractions.get("analysis_methods")
-                    ),
-                    statistical_tests=self._ensure_list(
-                        extractions.get("statistical_tests")
-                    ),
-                    software_tools=self._ensure_list(
-                        extractions.get("software_tools")
-                    ),
-                    
-                    # Findings (LLM Pass 2)
-                    key_findings=self._ensure_list(
-                        extractions.get("key_findings")
-                    ),
-                    quantitative_results=self._ensure_dict(
-                        extractions.get("quantitative_results")
-                    ),
-                    qualitative_themes=self._ensure_list(
-                        extractions.get("qualitative_themes")
-                    ),
-                    effect_sizes=self._ensure_list(
-                        extractions.get("effect_sizes")
-                    ),
-                    
-                    # Critical Analysis (LLM Pass 3)
-                    main_arguments=self._ensure_list(
-                        extractions.get("main_arguments")
-                    ),
-                    theoretical_contributions=self._ensure_string(
-                        extractions.get("theoretical_contributions")
-                    ),
-                    practical_implications=self._ensure_string(
-                        extractions.get("practical_implications")
-                    ),
-                    limitations=self._ensure_list(
-                        extractions.get("limitations")
-                    ),
-                    future_research=self._ensure_list(
-                        extractions.get("future_research")
-                    ),
-                    
-                    # Classification (from Zotero + LLM)
-                    research_domain=self._ensure_string(
-                        extractions.get("research_domain")
-                    ),
-                    subdomain=self._ensure_string(
-                        extractions.get("subdomain")
-                    ),
-                    methodology_type=self._ensure_string(
-                        extractions.get("methodology_type")
-                    ),
-                    paper_type=self._ensure_string(
-                        extractions.get("paper_type")
-                    ),
-                    keywords=self._ensure_list(
-                        extractions.get("keywords")
-                    ) + zotero_item.tags  # Add Zotero tags
-                )
-                
-                paper.extraction = extraction
-                
-                # Save chunks to database
-                for i, chunk in enumerate(chunks):
-                    db_chunk = Chunk(
-                        chunk_id=f"{paper_id}_chunk_{i}",
-                        paper_id=paper_id,
-                        section_type=chunk.section_type,
-                        section_title=chunk.section_title,
-                        chunk_index=i,
-                        content=chunk.content,
-                        token_count=chunk.token_count,
-                        has_equations=chunk.has_equations,
-                        has_tables=chunk.has_tables
-                    )
-                    session.add(db_chunk)
-                
-                session.add(paper)
-                session.commit()
-            
-            # Step 5: Index vectors
-            section_map = {
-                "abstract": SectionType.ABSTRACT,
-                "introduction": SectionType.INTRODUCTION,
-                "literature_review": SectionType.LITERATURE_REVIEW,
-                "methodology": SectionType.METHODOLOGY,
-                "results": SectionType.RESULTS,
-                "discussion": SectionType.DISCUSSION,
-                "conclusion": SectionType.CONCLUSION,
-                "references": SectionType.REFERENCES,
-                "other": SectionType.OTHER
-            }
-            
-            chunk_docs = [
-                ChunkDocument(
-                    chunk_id=f"{paper_id}_chunk_{i}",
-                    paper_id=paper_id,
-                    content=chunk.content,
-                    section_type=section_map.get(chunk.section_type, SectionType.OTHER),
-                    section_title=chunk.section_title,
-                    chunk_index=i,
-                    token_count=chunk.token_count
-                )
-                for i, chunk in enumerate(chunks)
-            ]
-            self.vectors.add_chunks(chunk_docs)
-            
-            # Paper summary embedding
-            findings_text = ""
-            key_findings = self._ensure_list(extractions.get("key_findings"))
-            if key_findings:
-                findings_text = " ".join(
-                    f.get("finding", str(f)) if isinstance(f, dict) else str(f)
-                    for f in key_findings[:5]
-                )
-            
-            summary = PaperSummary(
-                paper_id=paper_id,
-                title=zotero_item.title or paper_id,
-                abstract=zotero_item.abstract,
-                key_findings_text=findings_text,
-                keywords=self._ensure_list(extractions.get("keywords")) + zotero_item.tags,
-                research_domain=self._ensure_string(extractions.get("research_domain")),
-                methodology_type=self._ensure_string(extractions.get("methodology_type")),
-                paper_type=self._ensure_string(extractions.get("paper_type"))
-            )
-            self.vectors.add_paper_summary(summary)
-            
-            elapsed = time.time() - start_time
-            
-            return ImportResult(
-                status="imported",
-                paper_id=paper_id,
-                citation_key=paper_id,
-                time_seconds=elapsed,
-                pages=doc.page_count,
-                chunks=len(chunks),
-                title=zotero_item.title
-            )
+            result = self._process_paper(zotero_item, paper_id, file_hash)
+            result.time_seconds = time.time() - start_time
+            return result
             
         except Exception as e:
-            # Mark as failed
-            with self.db.get_session() as session:
-                from ..models.database import Paper, ProcessingStatus
-                
-                paper = Paper(
-                    paper_id=paper_id,
-                    zotero_key=zotero_item.item_key,
-                    file_path=str(zotero_item.pdf_path),
-                    file_hash=file_hash,
-                    title=zotero_item.title,
-                    processing_status=ProcessingStatus.FAILED
-                )
-                session.merge(paper)
-                session.commit()
-            
             return ImportResult(
-                status="failed",
                 paper_id=paper_id,
-                citation_key=paper_id,
+                status="failed",
                 message=str(e),
                 time_seconds=time.time() - start_time
             )
     
-    def import_collection(
+    def _process_paper(
         self,
-        collection_name: str,
-        force_reprocess: bool = False,
-        progress_callback=None
-    ) -> list[ImportResult]:
-        """
-        Import all papers from a Zotero collection.
+        zotero_item: ZoteroItem,
+        paper_id: str,
+        file_hash: str
+    ) -> ImportResult:
+        """Process a paper through the full pipeline."""
         
-        Args:
-            collection_name: Name of the collection to import
-            force_reprocess: Re-run extraction even if papers exist
-            progress_callback: Optional callback(current, total, item_name)
-            
-        Returns:
-            List of ImportResult for each paper
-        """
-        items = self.reader.get_items(
-            collection_name=collection_name,
-            has_pdf=False  # Get all, we'll report which don't have PDFs
-        )
+        # Step 1: Extract PDF with page boundaries
+        print(f"    Extracting PDF...")
+        doc = self.pdf_processor.extract_with_pages(str(zotero_item.pdf_path))
         
-        results = []
+        # Step 2: Detect sections
+        print(f"    Detecting sections ({doc.page_count} pages)...")
+        section_result = self.section_detector.detect_sections(doc)
+        detected_sections = section_result.sections
         
-        for i, item in enumerate(items):
-            if progress_callback:
-                progress_callback(i + 1, len(items), item.title or item.item_key)
-            
-            result = self.import_item(item, force_reprocess)
-            results.append(result)
+        # Step 3: Extract content per section
+        print(f"    Extracting content ({len(detected_sections)} sections)...")
+        extractions = self.extractor.extract_all(doc, detected_sections)
         
-        return results
-    
-    def import_all(
-        self,
-        force_reprocess: bool = False,
-        progress_callback=None
-    ) -> list[ImportResult]:
-        """Import all papers from Zotero library."""
-        items = self.reader.get_items(has_pdf=False)
+        # Step 4: Create page-based chunks
+        print(f"    Creating chunks...")
+        chunks = self.chunker.chunk_document(doc, paper_id, detected_sections)
         
-        results = []
-        
-        for i, item in enumerate(items):
-            if progress_callback:
-                progress_callback(i + 1, len(items), item.title or item.item_key)
-            
-            result = self.import_item(item, force_reprocess)
-            results.append(result)
-        
-        return results
-    
-    def sync_metadata(self) -> list[ImportResult]:
-        """
-        Sync metadata for all imported papers from Zotero.
-        Does not re-run LLM extraction.
-        """
-        from ..models.database import Paper
-        
-        results = []
-        
+        # Step 5: Store in database
+        print(f"    Saving to database...")
         with self.db.get_session() as session:
-            papers = session.query(Paper).filter(
-                Paper.zotero_key.isnot(None)
-            ).all()
-            
-            for paper in papers:
-                item = self.reader.get_item_by_key(paper.zotero_key)
+            # Create paper record
+            paper = Paper(
+                paper_id=paper_id,
                 
-                if item:
-                    self._update_from_zotero(paper, item)
-                    results.append(ImportResult(
-                        status="updated",
-                        paper_id=paper.paper_id,
-                        citation_key=paper.paper_id,
-                        message="Synced from Zotero"
-                    ))
-                else:
-                    results.append(ImportResult(
-                        status="skipped",
-                        paper_id=paper.paper_id,
-                        message="Not found in Zotero"
-                    ))
+                # Zotero linking
+                zotero_key=zotero_item.item_key,
+                zotero_item_id=zotero_item.item_id,
+                zotero_collections=zotero_item.collections,
+                
+                # File info
+                file_path=str(zotero_item.pdf_path),
+                file_hash=file_hash,
+                
+                # Metadata from Zotero
+                title=zotero_item.title,
+                authors=zotero_item.authors,
+                abstract=zotero_item.abstract,
+                publication_date=zotero_item.date,
+                year=zotero_item.year,
+                journal_or_venue=zotero_item.publication_title,
+                doi=zotero_item.doi,
+                
+                # Document stats
+                page_count=doc.page_count,
+                word_count=doc.word_count,
+                
+                # Full text
+                full_text=doc.full_text,
+                
+                # Processing info
+                processing_status=ProcessingStatus.COMPLETED,
+                processing_model=self.extractor.model,
+                processed_at=datetime.utcnow()
+            )
+            session.add(paper)
             
+            # Create section records
+            for i, sec in enumerate(detected_sections):
+                section_id = f"{paper_id}_sec_{i}"
+                section = Section(
+                    section_id=section_id,
+                    paper_id=paper_id,
+                    section_type=sec.section_type,
+                    section_title=sec.section_title,
+                    section_index=i,
+                    page_start=sec.page_start,
+                    page_end=sec.page_end,
+                    char_start=sec.char_start,
+                    char_end=sec.char_end,
+                    summary=extractions["section_summaries"].get(f"sec_{i}"),
+                    key_points_verbatim=extractions["section_key_points"].get(f"sec_{i}", []),
+                    detection_method=section_result.detection_method,
+                    confidence=section_result.confidence
+                )
+                session.add(section)
+            
+            # Create chunk records
+            for chunk in chunks:
+                db_chunk = Chunk(
+                    chunk_id=chunk.chunk_id,
+                    paper_id=paper_id,
+                    section_id=chunk.section_id,
+                    page_number=chunk.page_number,
+                    char_start=chunk.char_start,
+                    char_end=chunk.char_end,
+                    content=chunk.content,
+                    word_count=chunk.word_count
+                )
+                session.add(db_chunk)
+            
+            # Create extraction record
+            extraction = Extraction(
+                paper_id=paper_id,
+                
+                # Verbatim extractions
+                methodology_verbatim=extractions.get("methodology_verbatim"),
+                evaluation_setup_verbatim=extractions.get("evaluation_setup_verbatim"),
+                contributions_verbatim=extractions.get("contributions_verbatim", []),
+                results_verbatim=extractions.get("results_verbatim", []),
+                statistics_verbatim=extractions.get("statistics_verbatim", []),
+                limitations_verbatim=extractions.get("limitations_verbatim", []),
+                future_work_verbatim=extractions.get("future_work_verbatim", []),
+                
+                # Summary
+                methodology_summary=extractions.get("methodology_summary"),
+                
+                # Classification
+                research_domain=extractions.get("research_domain"),
+                subdomain=extractions.get("subdomain"),
+                methodology_type=extractions.get("methodology_type"),
+                paper_type=extractions.get("paper_type"),
+                keywords=extractions.get("keywords", []) + zotero_item.tags,
+                software_tools=extractions.get("software_tools", [])
+            )
+            session.add(extraction)
             session.commit()
         
-        return results
+        # Step 6: Index vectors
+        print(f"    Indexing vectors...")
+        for chunk in chunks:
+            self.vectors.add_chunk(
+                chunk_id=chunk.chunk_id,
+                content=chunk.content,
+                metadata={
+                    "paper_id": paper_id,
+                    "page_number": chunk.page_number,
+                    "section_type": chunk.section_type or "unknown",
+                    "char_start": chunk.char_start,
+                    "char_end": chunk.char_end
+                }
+            )
+        
+        return ImportResult(
+            paper_id=paper_id,
+            status="imported",
+            page_count=doc.page_count,
+            section_count=len(detected_sections)
+        )
     
-    def _update_from_zotero(self, paper, zotero_item: ZoteroItem):
+    def _update_metadata(
+        self,
+        session,
+        paper: Paper,
+        zotero_item: ZoteroItem
+    ):
         """Update paper metadata from Zotero."""
         paper.title = zotero_item.title
         paper.authors = zotero_item.authors
@@ -464,63 +325,55 @@ class ZoteroSync:
         paper.doi = zotero_item.doi
         paper.zotero_collections = zotero_item.collections
     
-    def _merge_zotero_info(self, paper, zotero_item: ZoteroItem):
-        """Merge Zotero info into existing paper."""
-        paper.zotero_key = zotero_item.item_key
-        paper.zotero_item_id = zotero_item.item_id
-        
-        # Merge collections (keep existing + add new)
-        existing_collections = paper.zotero_collections or []
-        new_collections = zotero_item.collections
-        paper.zotero_collections = list(set(existing_collections + new_collections))
-        
-        # Update metadata from Zotero (more reliable)
-        self._update_from_zotero(paper, zotero_item)
-    
     def _calculate_hash(self, file_path: Path) -> str:
         """Calculate SHA256 hash of file."""
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
             for byte_block in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()[:16]
+        return sha256_hash.hexdigest()
     
-    @staticmethod
-    def _ensure_string(value) -> Optional[str]:
-        """Convert value to string."""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            return value
-        if isinstance(value, list):
-            return "; ".join(str(v) for v in value)
-        if isinstance(value, dict):
-            import json
-            return json.dumps(value)
-        return str(value)
+    def import_collection(
+        self,
+        collection_name: str,
+        force_reprocess: bool = False
+    ) -> list[ImportResult]:
+        """Import all papers from a collection."""
+        items = self.reader.get_items(collection_name=collection_name)
+        results = []
+        
+        for i, item in enumerate(items):
+            print(f"  [{i+1}/{len(items)}] {item.citation_key or item.title[:50]}")
+            result = self.import_item(item, force_reprocess)
+            results.append(result)
+            
+            if result.status == "imported":
+                print(f"    ✓ {result.page_count} pages, {result.section_count} sections ({result.time_seconds:.1f}s)")
+            elif result.status == "failed":
+                print(f"    ✗ {result.message}")
+            else:
+                print(f"    - {result.status}: {result.message}")
+        
+        return results
     
-    @staticmethod
-    def _ensure_list(value) -> list:
-        """Ensure value is a list."""
-        if value is None:
-            return []
-        if isinstance(value, list):
-            return value
-        if isinstance(value, str):
-            return [value] if value else []
-        return [value]
-    
-    @staticmethod
-    def _ensure_dict(value) -> Optional[dict]:
-        """Ensure value is a dict or None."""
-        if value is None:
-            return None
-        if isinstance(value, dict):
-            return value
-        if isinstance(value, str):
-            import json
-            try:
-                return json.loads(value)
-            except:
-                return {"value": value}
-        return {"value": str(value)}
+    def import_all(
+        self,
+        force_reprocess: bool = False
+    ) -> list[ImportResult]:
+        """Import all papers from Zotero."""
+        items = self.reader.get_items()
+        results = []
+        
+        for i, item in enumerate(items):
+            print(f"  [{i+1}/{len(items)}] {item.citation_key or item.title[:50]}")
+            result = self.import_item(item, force_reprocess)
+            results.append(result)
+            
+            if result.status == "imported":
+                print(f"    ✓ {result.page_count} pages, {result.section_count} sections ({result.time_seconds:.1f}s)")
+            elif result.status == "failed":
+                print(f"    ✗ {result.message}")
+            else:
+                print(f"    - {result.status}: {result.message}")
+        
+        return results

@@ -1,15 +1,6 @@
-"""
-Zotero integration module.
-"""
+"""Zotero integration."""
 
-from .models import ZoteroItem, ZoteroCollection, ImportResult
 from .reader import ZoteroReader
-from .sync import ZoteroSync
+from .models import ZoteroItem, ZoteroCollection
 
-__all__ = [
-    "ZoteroItem",
-    "ZoteroCollection", 
-    "ImportResult",
-    "ZoteroReader",
-    "ZoteroSync"
-]
+__all__ = ["ZoteroReader", "ZoteroItem", "ZoteroCollection"]

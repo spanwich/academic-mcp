@@ -449,7 +449,15 @@ class ZoteroReader:
             abstract=fields.get("abstractNote"),
             date=date,
             year=year,
-            publication_title=fields.get("publicationTitle"),
+            # Venue can be in different fields depending on item type
+            publication_title=(
+                fields.get("publicationTitle")  # journal articles
+                or fields.get("proceedingsTitle")  # conference papers
+                or fields.get("conferenceName")  # some conference papers
+                or fields.get("bookTitle")  # book sections
+                or fields.get("university")  # thesis
+                or fields.get("publisher")  # books
+            ),
             doi=fields.get("DOI"),
             url=fields.get("url"),
             volume=fields.get("volume"),

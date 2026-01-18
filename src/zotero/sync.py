@@ -1,7 +1,7 @@
 """
 Zotero sync and import logic.
 
-v3.2: Page-based chunking with section detection.
+v3.3: Added keywords extraction and domain classification.
 """
 
 import hashlib
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..models.database import (
-    Database, Paper, Section, Chunk, Extraction,
+    Database, Paper, Section, Chunk, Extraction, Domain,
     ProcessingStatus, SectionType
 )
 from ..models.vectors import VectorStore
@@ -20,6 +20,8 @@ from ..processing.pdf_processor import PDFProcessor, ExtractedDocument
 from ..processing.section_detector import SectionDetector, DetectedSection
 from ..processing.chunker import PageChunker
 from ..processing.extractor import SectionExtractor
+from ..processing.keyword_extractor import KeywordExtractor
+from ..processing.domain_classifier import DomainClassifier
 from .reader import ZoteroReader
 from .models import ZoteroItem
 
@@ -42,11 +44,13 @@ class ZoteroSync:
     Flow:
     1. Read item from Zotero
     2. Extract PDF with page boundaries
-    3. Detect sections with LLM
-    4. Extract content per section
-    5. Create page-based chunks
-    6. Index vectors
-    7. Store everything
+    3. Extract keywords (from PDF or LLM)
+    4. Classify domain (self-organizing taxonomy)
+    5. Detect sections with LLM
+    6. Extract content per section
+    7. Create page-based chunks
+    8. Index vectors
+    9. Store everything
     """
     
     def __init__(
@@ -57,7 +61,9 @@ class ZoteroSync:
         section_detector: SectionDetector,
         extractor: SectionExtractor,
         pdf_processor: PDFProcessor,
-        chunker: PageChunker
+        chunker: PageChunker,
+        keyword_extractor: Optional[KeywordExtractor] = None,
+        domain_classifier: Optional[DomainClassifier] = None
     ):
         self.reader = reader
         self.db = database
@@ -66,6 +72,8 @@ class ZoteroSync:
         self.extractor = extractor
         self.pdf_processor = pdf_processor
         self.chunker = chunker
+        self.keyword_extractor = keyword_extractor
+        self.domain_classifier = domain_classifier
     
     def import_item(
         self,
@@ -174,22 +182,56 @@ class ZoteroSync:
         print(f"    Extracting PDF...")
         doc = self.pdf_processor.extract_with_pages(str(zotero_item.pdf_path))
         
-        # Step 2: Detect sections
+        # Step 2: Extract keywords (NEW in v3.3)
+        keywords = []
+        keywords_source = None
+        if self.keyword_extractor:
+            print(f"    Extracting keywords...")
+            keywords, keywords_source = self.keyword_extractor.extract(
+                doc.full_text,
+                abstract=zotero_item.abstract,
+                title=zotero_item.title
+            )
+            # Also include Zotero tags as keywords (always trustworthy)
+            if zotero_item.tags:
+                keywords = list(set(keywords + [t.lower() for t in zotero_item.tags]))
+                if keywords_source != "paper":
+                    keywords_source = "mixed"  # Mix of LLM and Zotero tags
+        
+        # Step 3: Classify domain (NEW in v3.3)
+        domain = None
+        is_new_domain = False
+        if self.domain_classifier:
+            print(f"    Classifying domain...")
+            # Get existing domains
+            existing_domains = self._get_existing_domains()
+            domain, is_new_domain = self.domain_classifier.classify(
+                abstract=zotero_item.abstract or doc.full_text[:2000],
+                title=zotero_item.title,
+                keywords=keywords,
+                existing_domains=existing_domains
+            )
+        
+        # Step 4: Detect sections
         print(f"    Detecting sections ({doc.page_count} pages)...")
         section_result = self.section_detector.detect_sections(doc)
         detected_sections = section_result.sections
         
-        # Step 3: Extract content per section
+        # Step 5: Extract content per section
         print(f"    Extracting content ({len(detected_sections)} sections)...")
         extractions = self.extractor.extract_all(doc, detected_sections)
         
-        # Step 4: Create page-based chunks
+        # Step 6: Create page-based chunks
         print(f"    Creating chunks...")
         chunks = self.chunker.chunk_document(doc, paper_id, detected_sections)
         
-        # Step 5: Store in database
+        # Step 7: Store in database
         print(f"    Saving to database...")
         with self.db.get_session() as session:
+            # Update domain count if new
+            if domain:
+                self._update_domain_count(session, domain, is_new_domain)
+            
             # Create paper record
             paper = Paper(
                 paper_id=paper_id,
@@ -208,9 +250,14 @@ class ZoteroSync:
                 authors=zotero_item.authors,
                 abstract=zotero_item.abstract,
                 publication_date=zotero_item.date,
-                year=zotero_item.year,
+                year=int(zotero_item.year) if zotero_item.year else None,
                 journal_or_venue=zotero_item.publication_title,
                 doi=zotero_item.doi,
+                
+                # NEW in v3.3: Keywords and domain
+                keywords=keywords,
+                keywords_source=keywords_source,
+                domain=domain,
                 
                 # Document stats
                 page_count=doc.page_count,
@@ -276,18 +323,15 @@ class ZoteroSync:
                 # Summary
                 methodology_summary=extractions.get("methodology_summary"),
                 
-                # Classification
-                research_domain=extractions.get("research_domain"),
-                subdomain=extractions.get("subdomain"),
+                # Classification (kept for compatibility)
                 methodology_type=extractions.get("methodology_type"),
                 paper_type=extractions.get("paper_type"),
-                keywords=extractions.get("keywords", []) + zotero_item.tags,
                 software_tools=extractions.get("software_tools", [])
             )
             session.add(extraction)
             session.commit()
         
-        # Step 6: Index vectors
+        # Step 8: Index vectors
         print(f"    Indexing vectors...")
         for chunk in chunks:
             self.vectors.add_chunk(
@@ -308,6 +352,25 @@ class ZoteroSync:
             page_count=doc.page_count,
             section_count=len(detected_sections)
         )
+    
+    def _get_existing_domains(self) -> list[str]:
+        """Get list of existing domain names."""
+        with self.db.get_session() as session:
+            domains = session.query(Domain.name).all()
+            return [d[0] for d in domains]
+    
+    def _update_domain_count(self, session, domain_name: str, is_new: bool):
+        """Update or create domain record."""
+        existing = session.query(Domain).filter(Domain.name == domain_name).first()
+        
+        if existing:
+            existing.paper_count += 1
+        else:
+            new_domain = Domain(
+                name=domain_name,
+                paper_count=1
+            )
+            session.add(new_domain)
     
     def _update_metadata(
         self,

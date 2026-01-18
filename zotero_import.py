@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Zotero Import CLI for Academic Paper MCP v3.2
+Zotero Import CLI for Academic Paper MCP v3.3
 
 Usage:
     python zotero_import.py --stats
@@ -12,7 +12,11 @@ Usage:
 """
 
 import argparse
+import os
+import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Add src to path
@@ -25,8 +29,105 @@ from src.processing.pdf_processor import PDFProcessor
 from src.processing.section_detector import SectionDetector
 from src.processing.chunker import PageChunker
 from src.processing.extractor import SectionExtractor
+from src.processing.keyword_extractor import KeywordExtractor
+from src.processing.domain_classifier import DomainClassifier
 from src.zotero.reader import ZoteroReader
 from src.zotero.sync import ZoteroSync
+
+
+# Colors for terminal output
+GREEN = '\033[0;32m'
+YELLOW = '\033[1;33m'
+RED = '\033[0;31m'
+NC = '\033[0m'  # No Color
+
+
+def check_ollama_running(host: str = "http://localhost:11434") -> bool:
+    """Check if Ollama is running using curl."""
+    try:
+        result = subprocess.run(
+            ["curl", "-s", f"{host}/api/tags"],
+            capture_output=True,
+            timeout=2
+        )
+        return result.returncode == 0
+    except:
+        return False
+
+
+def check_ollama_installed() -> bool:
+    """Check if Ollama is installed."""
+    return shutil.which("ollama") is not None
+
+
+def start_ollama() -> bool:
+    """Start Ollama server and wait for it to be ready."""
+    print("Starting Ollama...")
+    
+    # Start Ollama in background, preserving full environment for GPU access
+    env = os.environ.copy()
+    subprocess.Popen(
+        ["ollama", "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        start_new_session=True
+    )
+    
+    # Wait for it to be ready (up to 30 seconds)
+    for i in range(30):
+        if check_ollama_running():
+            print(f"{GREEN}✓ Ollama started{NC}")
+            return True
+        time.sleep(1)
+    
+    return False
+
+
+def check_model_available(model: str, host: str = "http://localhost:11434") -> bool:
+    """Check if the model is available."""
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        # Check if model name (without tag) is in the output
+        model_base = model.split(":")[0]
+        return model_base in result.stdout
+    except:
+        return False
+
+
+def pull_model(model: str):
+    """Pull a model from Ollama."""
+    print(f"{YELLOW}Model {model} not found. Pulling...{NC}")
+    subprocess.run(["ollama", "pull", model], check=True)
+    print(f"{GREEN}✓ Model {model} pulled{NC}")
+
+
+def ensure_ollama_ready(model: str, host: str = "http://localhost:11434"):
+    """Ensure Ollama is running and model is available."""
+    
+    # Check if Ollama is installed
+    if not check_ollama_installed():
+        print(f"{RED}Error: Ollama not found.{NC}")
+        print("Please install it first:")
+        print("  curl -fsSL https://ollama.com/install.sh | sh")
+        sys.exit(1)
+    
+    # Check if Ollama is running
+    if check_ollama_running(host):
+        print(f"{GREEN}✓ Ollama already running{NC}")
+    else:
+        if not start_ollama():
+            print(f"{RED}Error: Failed to start Ollama{NC}")
+            sys.exit(1)
+    
+    # Check if model is available
+    if not check_model_available(model, host):
+        pull_model(model)
 
 
 def print_header(title: str):
@@ -256,6 +357,12 @@ def main():
         parser.print_help()
         return
     
+    # Initialize configuration
+    model = args.model or config.llm_model
+    
+    # Ensure Ollama is running and model is available
+    ensure_ollama_ready(model, config.ollama_host)
+    
     print("Initializing components...")
     
     # Initialize database
@@ -269,13 +376,14 @@ def main():
     )
     
     # Initialize processing components
-    model = args.model or config.llm_model
     print(f"Using LLM model: {model}")
     
     pdf_processor = PDFProcessor()
     section_detector = SectionDetector(model=model, host=config.ollama_host)
     chunker = PageChunker()
     extractor = SectionExtractor(model=model, host=config.ollama_host)
+    keyword_extractor = KeywordExtractor(model=model, host=config.ollama_host)
+    domain_classifier = DomainClassifier(model=model, host=config.ollama_host)
     
     # Initialize sync
     sync = ZoteroSync(
@@ -285,7 +393,9 @@ def main():
         section_detector=section_detector,
         extractor=extractor,
         pdf_processor=pdf_processor,
-        chunker=chunker
+        chunker=chunker,
+        keyword_extractor=keyword_extractor,
+        domain_classifier=domain_classifier
     )
     
     # Run command

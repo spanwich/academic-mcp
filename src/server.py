@@ -1,11 +1,12 @@
 """
-Academic Paper MCP Server v3.2
+Academic Paper MCP Server v3.3
 
 MCP server for academic paper analysis with:
 - Zotero integration
 - Page-based chunking
 - Section-aware retrieval
 - Verbatim extraction
+- Keywords & domain search (NEW in v3.3)
 """
 
 import asyncio
@@ -30,7 +31,7 @@ from mcp.types import (
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import get_config, ensure_directories
-from src.models.database import Database, Paper, Section, Chunk, Extraction
+from src.models.database import Database, Paper, Section, Chunk, Extraction, Domain
 from src.models.vectors import VectorStore
 from src.zotero.reader import ZoteroReader
 
@@ -93,15 +94,44 @@ TOOLS = [
     # Search Tools
     Tool(
         name="search_papers",
-        description="Find papers by topic (searches titles, abstracts)",
+        description="""Find papers by multiple criteria. All filters are optional and combinable.
+        
+Examples:
+- search_papers(query="verification") - text search in title/abstract
+- search_papers(venue="NDSS") - papers from NDSS conference
+- search_papers(domain="side-channel") - papers in domains containing "side-channel"
+- search_papers(author="Heiser") - papers by author
+- search_papers(year=2024) - papers from 2024
+- search_papers(venue="RTSS", year_from=2020) - RTSS papers from 2020+
+- search_papers(keywords=["seL4", "microkernel"]) - papers with these keywords""",
         inputSchema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query"}
-            },
-            "required": ["query"]
+                "query": {"type": "string", "description": "Text search in title/abstract"},
+                "venue": {"type": "string", "description": "Filter by venue (partial match, e.g., 'NDSS' matches full conference name)"},
+                "domain": {"type": "string", "description": "Filter by domain (partial match)"},
+                "author": {"type": "string", "description": "Filter by author name (partial match)"},
+                "year": {"type": "integer", "description": "Filter by exact publication year"},
+                "year_from": {"type": "integer", "description": "Filter by year range start (inclusive)"},
+                "year_to": {"type": "integer", "description": "Filter by year range end (inclusive)"},
+                "keywords": {"type": "array", "items": {"type": "string"}, "description": "Filter by keywords (matches if paper has ANY of these)"},
+                "limit": {"type": "integer", "description": "Max results to return", "default": 50}
+            }
         }
     ),
+    
+    # Discovery Tools (NEW in v3.3)
+    Tool(
+        name="list_venues",
+        description="List all venues (conferences/journals) in the database with paper counts. Use this to discover venue names for filtering.",
+        inputSchema={"type": "object", "properties": {}}
+    ),
+    Tool(
+        name="list_domains",
+        description="List all research domains in the database with paper counts. Domains are specific and research-actionable (e.g., 'microkernel formal verification using Isabelle').",
+        inputSchema={"type": "object", "properties": {}}
+    ),
+    
     Tool(
         name="search_content",
         description="Semantic search within paper content. Returns relevant chunks with page numbers.",
@@ -302,6 +332,12 @@ async def call_tool(name: str, arguments: dict):
     elif name == "search_by_citation":
         return await _search_by_citation(arguments)
     
+    # Discovery tools (NEW in v3.3)
+    elif name == "list_venues":
+        return await _list_venues()
+    elif name == "list_domains":
+        return await _list_domains()
+    
     # Section tools
     elif name == "list_sections":
         return await _list_sections(arguments)
@@ -413,24 +449,166 @@ async def _list_imported_papers(args: dict):
 
 
 async def _search_papers(args: dict):
-    """Search papers by topic."""
-    query = args["query"]
+    """Search papers by multiple criteria."""
+    query = args.get("query")
+    venue = args.get("venue")
+    domain = args.get("domain")
+    author = args.get("author")
+    year = args.get("year")
+    year_from = args.get("year_from")
+    year_to = args.get("year_to")
+    keywords = args.get("keywords", [])
+    limit = args.get("limit", 50)
     
     with database.get_session() as session:
-        # Simple text search on title and abstract
-        papers = session.query(Paper).filter(
-            (Paper.title.ilike(f"%{query}%")) |
-            (Paper.abstract.ilike(f"%{query}%"))
-        ).limit(20).all()
+        # Start with base query
+        q = session.query(Paper)
+        
+        # Apply filters
+        filters_applied = []
+        
+        # Text search on title/abstract
+        if query:
+            q = q.filter(
+                (Paper.title.ilike(f"%{query}%")) |
+                (Paper.abstract.ilike(f"%{query}%"))
+            )
+            filters_applied.append(f"query='{query}'")
+        
+        # Venue filter (partial match)
+        if venue:
+            q = q.filter(Paper.journal_or_venue.ilike(f"%{venue}%"))
+            filters_applied.append(f"venue='{venue}'")
+        
+        # Domain filter (partial match)
+        if domain:
+            q = q.filter(Paper.domain.ilike(f"%{domain}%"))
+            filters_applied.append(f"domain='{domain}'")
+        
+        # Author filter (search in JSON array)
+        if author:
+            # SQLite JSON search - check if any author matches
+            q = q.filter(Paper.authors.cast(str).ilike(f"%{author}%"))
+            filters_applied.append(f"author='{author}'")
+        
+        # Year filters
+        if year:
+            q = q.filter(Paper.year == year)
+            filters_applied.append(f"year={year}")
+        if year_from:
+            q = q.filter(Paper.year >= year_from)
+            filters_applied.append(f"year_from={year_from}")
+        if year_to:
+            q = q.filter(Paper.year <= year_to)
+            filters_applied.append(f"year_to={year_to}")
+        
+        # Keywords filter (match any)
+        if keywords:
+            keyword_conditions = []
+            for kw in keywords:
+                keyword_conditions.append(Paper.keywords.cast(str).ilike(f"%{kw}%"))
+            if keyword_conditions:
+                from sqlalchemy import or_
+                q = q.filter(or_(*keyword_conditions))
+            filters_applied.append(f"keywords={keywords}")
+        
+        # Execute query
+        papers = q.order_by(Paper.year.desc().nullslast()).limit(limit).all()
         
         if not papers:
-            return [TextContent(type="text", text=f"No papers found for '{query}'")]
+            filters_str = ", ".join(filters_applied) if filters_applied else "no filters"
+            return [TextContent(type="text", text=f"No papers found with filters: {filters_str}")]
         
-        output = f"## Papers matching '{query}'\n\n"
+        # Format output
+        filters_str = ", ".join(filters_applied) if filters_applied else "none"
+        output = f"## Papers ({len(papers)} results)\n**Filters:** {filters_str}\n\n"
+        
         for p in papers:
-            output += f"• **{p.paper_id}**\n"
-            output += f"  {p.title[:70]}{'...' if len(p.title or '') > 70 else ''}\n"
-            output += f"  {', '.join(p.authors[:3])}{'...' if len(p.authors) > 3 else ''} ({p.year or 'n.d.'})\n\n"
+            output += f"### {p.paper_id}\n"
+            output += f"**{p.title}**\n"
+            output += f"*{', '.join(p.authors[:3])}{'...' if len(p.authors) > 3 else ''}* ({p.year or 'n.d.'})\n"
+            
+            if p.journal_or_venue:
+                output += f"**Venue:** {p.journal_or_venue}\n"
+            if p.domain:
+                output += f"**Domain:** {p.domain}\n"
+            if p.keywords:
+                source = f" (from {p.keywords_source})" if p.keywords_source else ""
+                output += f"**Keywords:** {', '.join(p.keywords[:5])}{source}\n"
+            
+            output += "\n"
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _list_venues():
+    """List all venues with paper counts."""
+    with database.get_session() as session:
+        from sqlalchemy import func
+        
+        # Get venues with counts, excluding nulls
+        results = session.query(
+            Paper.journal_or_venue,
+            func.count(Paper.paper_id).label('count')
+        ).filter(
+            Paper.journal_or_venue.isnot(None),
+            Paper.journal_or_venue != ''
+        ).group_by(
+            Paper.journal_or_venue
+        ).order_by(
+            func.count(Paper.paper_id).desc()
+        ).all()
+        
+        if not results:
+            return [TextContent(type="text", text="No venues found in database.")]
+        
+        output = f"## Venues in Database ({len(results)} total)\n\n"
+        output += "Use `search_papers(venue=\"...\")` to find papers from a venue.\n\n"
+        
+        for venue, count in results:
+            output += f"• **{venue}** ({count} paper{'s' if count != 1 else ''})\n"
+        
+        return [TextContent(type="text", text=output)]
+
+
+async def _list_domains():
+    """List all domains with paper counts."""
+    with database.get_session() as session:
+        # Get domains from Domain table
+        domains = session.query(Domain).order_by(Domain.paper_count.desc()).all()
+        
+        if not domains:
+            # Fallback: get from papers directly
+            from sqlalchemy import func
+            results = session.query(
+                Paper.domain,
+                func.count(Paper.paper_id).label('count')
+            ).filter(
+                Paper.domain.isnot(None),
+                Paper.domain != ''
+            ).group_by(
+                Paper.domain
+            ).order_by(
+                func.count(Paper.paper_id).desc()
+            ).all()
+            
+            if not results:
+                return [TextContent(type="text", text="No domains found. Papers may need re-import for domain classification.")]
+            
+            output = f"## Research Domains ({len(results)} total)\n\n"
+            output += "Use `search_papers(domain=\"...\")` to find papers in a domain.\n\n"
+            
+            for domain, count in results:
+                output += f"• **{domain}** ({count} paper{'s' if count != 1 else ''})\n"
+            
+            return [TextContent(type="text", text=output)]
+        
+        output = f"## Research Domains ({len(domains)} total)\n\n"
+        output += "Use `search_papers(domain=\"...\")` to find papers in a domain.\n"
+        output += "Domains are specific and research-actionable.\n\n"
+        
+        for d in domains:
+            output += f"• **{d.name}** ({d.paper_count} paper{'s' if d.paper_count != 1 else ''})\n"
         
         return [TextContent(type="text", text=output)]
 
@@ -645,6 +823,15 @@ async def _get_paper_metadata(args: dict):
         output += f"**Authors:** {', '.join(paper.authors)}\n\n"
         output += f"**Year:** {paper.year or 'n.d.'}\n\n"
         output += f"**Venue:** {paper.journal_or_venue or 'Unknown'}\n\n"
+        
+        # NEW in v3.3: Domain and keywords
+        if paper.domain:
+            output += f"**Domain:** {paper.domain}\n\n"
+        
+        if paper.keywords:
+            source_note = f" (from {paper.keywords_source})" if paper.keywords_source else ""
+            output += f"**Keywords:** {', '.join(paper.keywords)}{source_note}\n\n"
+        
         output += f"**DOI:** {paper.doi or 'None'}\n\n"
         output += f"**Pages:** {paper.page_count}\n\n"
         output += f"**Words:** {paper.word_count}\n\n"
@@ -808,14 +995,101 @@ async def _query_paper(args: dict):
 
 # === Main ===
 
+import signal
+
+# Shutdown flag
+_shutdown_event = None
+
+
+def _cleanup():
+    """Cleanup resources on shutdown."""
+    import sys
+    print("\nShutting down Academic Paper MCP Server...", file=sys.stderr)
+    
+    # Close database connections
+    try:
+        if database.engine:
+            database.engine.dispose()
+            print("  ✓ Database connections closed", file=sys.stderr)
+    except Exception as e:
+        print(f"  ✗ Database cleanup error: {e}", file=sys.stderr)
+    
+    # Close vector store
+    try:
+        if vector_store and hasattr(vector_store, '_client'):
+            # ChromaDB cleanup if needed
+            print("  ✓ Vector store closed", file=sys.stderr)
+    except Exception as e:
+        print(f"  ✗ Vector store cleanup error: {e}", file=sys.stderr)
+    
+    print("Goodbye!", file=sys.stderr)
+
+
+def _signal_handler(signum, frame):
+    """Handle shutdown signals."""
+    import sys
+    sig_name = signal.Signals(signum).name
+    print(f"\nReceived {sig_name}, initiating graceful shutdown...", file=sys.stderr)
+    
+    if _shutdown_event:
+        _shutdown_event.set()
+    else:
+        # Fallback: direct cleanup and exit
+        _cleanup()
+        sys.exit(0)
+
+
 async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options()
-        )
+    global _shutdown_event
+    _shutdown_event = asyncio.Event()
+    
+    # Register signal handlers
+    loop = asyncio.get_event_loop()
+    
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, lambda s=sig: _signal_handler(s, None))
+        except NotImplementedError:
+            # Windows doesn't support add_signal_handler
+            signal.signal(sig, _signal_handler)
+    
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            # Create a task for the server
+            server_task = asyncio.create_task(
+                server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options()
+                )
+            )
+            
+            # Create a task for shutdown monitoring
+            shutdown_task = asyncio.create_task(_shutdown_event.wait())
+            
+            # Wait for either server to finish or shutdown signal
+            done, pending = await asyncio.wait(
+                [server_task, shutdown_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # Cancel pending tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+    
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # Handle Ctrl+C if it slips through
+        _cleanup()

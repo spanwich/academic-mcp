@@ -1,5 +1,8 @@
 #!/bin/bash
 # start_server.sh - Start Ollama and MCP server together
+# 
+# Shutdown: Press Ctrl+C for graceful shutdown
+# The server will cleanup database connections and exit cleanly.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -9,7 +12,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "=== Academic Paper MCP Server v3.2 ==="
+echo "=== Academic Paper MCP Server v3.3 ==="
 
 # Check if Ollama is installed
 if ! command -v ollama &> /dev/null; then
@@ -48,6 +51,7 @@ if ! ollama list | grep -q "${MODEL%%:*}"; then
 fi
 
 # Activate venv and start MCP server
-echo "Starting MCP server..."
+# Using exec so signals (Ctrl+C) go directly to Python for graceful shutdown
+echo "Starting MCP server... (Ctrl+C to stop)"
 source venv/bin/activate
 exec python -m src.server "$@"

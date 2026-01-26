@@ -372,7 +372,9 @@ def main():
     # Initialize vector store
     vectors = VectorStore(
         persist_directory=config.chroma_persist_dir,
-        embedding_model=config.embedding_model
+        embedding_model=config.embedding_model,
+        embedding_backend=config.embedding_backend,
+        ollama_host=config.ollama_host
     )
     
     # Initialize processing components

@@ -439,6 +439,11 @@ class ZoteroReader:
             if match:
                 year = match.group(0)
         
+        # Extract venue/publication from various fields depending on item type
+        # Zotero uses different field names for different item types
+        # Try all possible venue fields in priority order
+        venue = self._extract_venue(fields, item_type)
+        
         return ZoteroItem(
             item_id=item_id,
             item_key=item_key,
@@ -449,15 +454,7 @@ class ZoteroReader:
             abstract=fields.get("abstractNote"),
             date=date,
             year=year,
-            # Venue can be in different fields depending on item type
-            publication_title=(
-                fields.get("publicationTitle")  # journal articles
-                or fields.get("proceedingsTitle")  # conference papers
-                or fields.get("conferenceName")  # some conference papers
-                or fields.get("bookTitle")  # book sections
-                or fields.get("university")  # thesis
-                or fields.get("publisher")  # books
-            ),
+            publication_title=venue,
             doi=fields.get("DOI"),
             url=fields.get("url"),
             volume=fields.get("volume"),
@@ -468,6 +465,102 @@ class ZoteroReader:
             pdf_path=pdf_path
         )
     
+    def _extract_venue(self, fields: dict, item_type: str) -> Optional[str]:
+        """
+        Extract venue/publication from Zotero fields.
+        
+        Zotero uses different field names for different item types:
+        - journalArticle: publicationTitle
+        - conferencePaper: proceedingsTitle, conferenceName
+        - bookSection: bookTitle
+        - book: series, publisher
+        - thesis: university
+        - report: institution, seriesTitle
+        - presentation: meetingName
+        - webpage: websiteTitle
+        - blogPost: blogTitle
+        - podcast/audioRecording: seriesTitle, label
+        - videoRecording: programTitle, network
+        - newspaperArticle/magazineArticle: publicationTitle
+        - patent: issuingAuthority
+        - statute: code, codeNumber
+        - case: court, reporter
+        - encyclopediaArticle: encyclopediaTitle
+        - dictionaryEntry: dictionaryTitle
+        - document: publisher
+        - letter: recipient (not really venue)
+        - manuscript: archive
+        - map: publisher
+        - artwork: archive
+        - film: distributor, studio
+        - tvBroadcast: network, programTitle
+        - radioBroadcast: network, programTitle
+        - hearing: committee
+        - bill: legislativeBody
+        - preprint: repository
+        
+        We try all possible venue-related fields in priority order.
+        """
+        # Priority-ordered list of venue-related fields
+        # More specific/common fields first
+        venue_fields = [
+            # Academic publications
+            "publicationTitle",      # journals, magazines, newspapers
+            "proceedingsTitle",      # conference papers
+            "conferenceName",        # conference papers (alternative)
+            "bookTitle",             # book sections, encyclopedia entries
+            "encyclopediaTitle",     # encyclopedia articles
+            "dictionaryTitle",       # dictionary entries
+            
+            # Academic institutions
+            "university",            # thesis
+            "institution",           # reports
+            
+            # Series and collections
+            "seriesTitle",           # reports, podcasts
+            "series",                # books
+            
+            # Web/digital
+            "websiteTitle",          # webpages
+            "blogTitle",             # blog posts
+            "forumTitle",            # forum posts
+            "repository",            # preprints
+            
+            # Media
+            "programTitle",          # TV, radio, video
+            "network",               # broadcasts
+            "studio",                # films
+            "distributor",           # films
+            "label",                 # audio recordings
+            
+            # Legal/government
+            "court",                 # legal cases
+            "reporter",              # legal cases
+            "code",                  # statutes
+            "legislativeBody",       # bills
+            "committee",             # hearings
+            "issuingAuthority",      # patents
+            
+            # Archives/collections
+            "archive",               # manuscripts, artwork
+            "libraryCatalog",        # general
+            
+            # Events
+            "meetingName",           # presentations
+            "place",                 # general location (fallback)
+            
+            # Publisher (last resort - less specific)
+            "publisher",             # books, documents, maps
+        ]
+        
+        # Try each field in priority order
+        for field in venue_fields:
+            value = fields.get(field)
+            if value and value.strip():
+                return value.strip()
+        
+        return None
+    
     def _get_pdf_path(
         self,
         conn: sqlite3.Connection,
@@ -477,12 +570,18 @@ class ZoteroReader:
         """Get PDF file path for an item."""
         
         # Check for PDF attachment
+        # linkMode: 0=imported file, 1=imported url, 2=linked file, 3=linked url
+        # Prefer stored/linked files (linkMode 0 or 2) over URL links (linkMode 1 or 3)
+        # Order by: has path DESC, linkMode ASC (prefer imported files)
         cursor = conn.execute("""
-            SELECT ia.path, i.key as attachmentKey
+            SELECT ia.path, i.key as attachmentKey, ia.linkMode
             FROM itemAttachments ia
             JOIN items i ON ia.itemID = i.itemID
             WHERE ia.parentItemID = ?
             AND ia.contentType = 'application/pdf'
+            ORDER BY 
+                CASE WHEN ia.path IS NOT NULL AND ia.path != '' THEN 0 ELSE 1 END,
+                ia.linkMode ASC
             LIMIT 1
         """, (item_id,))
         

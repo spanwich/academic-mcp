@@ -31,9 +31,14 @@ class Settings(BaseSettings):
         alias="ACADEMIC_LLM_MODEL"
     )
     embedding_model: str = Field(
-        default="BAAI/bge-large-en-v1.5",
+        default="nomic-embed-text",
         alias="ACADEMIC_EMBEDDING_MODEL"
     )
+    embedding_backend: str = Field(
+        default="ollama",
+        alias="ACADEMIC_EMBEDDING_BACKEND"
+    )
+    # Options: "ollama" (recommended) or "sentence-transformers"
     ollama_host: str = Field(
         default="http://localhost:11434",
         alias="ACADEMIC_OLLAMA_HOST"

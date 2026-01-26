@@ -198,18 +198,18 @@ class ZoteroSync:
                 if keywords_source != "paper":
                     keywords_source = "mixed"  # Mix of LLM and Zotero tags
         
-        # Step 3: Classify domain (NEW in v3.3)
+        # Step 3: Classify domain (v3.3.1: embedding-based classification)
         domain = None
+        domain_description = None
         is_new_domain = False
         if self.domain_classifier:
             print(f"    Classifying domain...")
-            # Get existing domains
-            existing_domains = self._get_existing_domains()
-            domain, is_new_domain = self.domain_classifier.classify(
+            # Use embedding-based classification (no existing_domains needed)
+            domain, is_new_domain, domain_description = self.domain_classifier.classify(
                 abstract=zotero_item.abstract or doc.full_text[:2000],
                 title=zotero_item.title,
                 keywords=keywords,
-                existing_domains=existing_domains
+                vector_store=self.vectors  # Pass vector store for embedding search
             )
         
         # Step 4: Detect sections
@@ -228,9 +228,15 @@ class ZoteroSync:
         # Step 7: Store in database
         print(f"    Saving to database...")
         with self.db.get_session() as session:
-            # Update domain count if new
+            # Update domain count and keywords (v3.3.1: also update embeddings)
             if domain:
-                self._update_domain_count(session, domain, is_new_domain)
+                self._update_domain_record(
+                    session=session,
+                    domain_name=domain,
+                    is_new=is_new_domain,
+                    description=domain_description,
+                    paper_keywords=keywords
+                )
             
             # Create paper record
             paper = Paper(
@@ -353,24 +359,61 @@ class ZoteroSync:
             section_count=len(detected_sections)
         )
     
-    def _get_existing_domains(self) -> list[str]:
-        """Get list of existing domain names."""
-        with self.db.get_session() as session:
-            domains = session.query(Domain.name).all()
-            return [d[0] for d in domains]
-    
-    def _update_domain_count(self, session, domain_name: str, is_new: bool):
-        """Update or create domain record."""
+    def _update_domain_record(
+        self,
+        session,
+        domain_name: str,
+        is_new: bool,
+        description: str = None,
+        paper_keywords: list[str] = None
+    ):
+        """
+        Update or create domain record and its embedding.
+
+        v3.3.1: Also updates aggregated_keywords and domain embedding.
+        """
         existing = session.query(Domain).filter(Domain.name == domain_name).first()
-        
+
         if existing:
+            # Update existing domain
             existing.paper_count += 1
+
+            # Update description if provided and not already set
+            if description and not existing.description:
+                existing.description = description
+
+            # Aggregate keywords
+            if paper_keywords:
+                current_keywords = existing.aggregated_keywords or []
+                merged_keywords = list(set(
+                    [k.lower() for k in current_keywords] +
+                    [k.lower() for k in paper_keywords]
+                ))
+                existing.aggregated_keywords = merged_keywords
+
+                # Update domain embedding with new keywords
+                self.vectors.update_domain_keywords(
+                    domain_name=domain_name,
+                    new_keywords=paper_keywords,
+                    description=existing.description
+                )
         else:
+            # Create new domain
+            keywords = [k.lower() for k in paper_keywords] if paper_keywords else []
             new_domain = Domain(
                 name=domain_name,
+                description=description,
+                aggregated_keywords=keywords,
                 paper_count=1
             )
             session.add(new_domain)
+
+            # Create domain embedding
+            self.vectors.add_domain_embedding(
+                domain_name=domain_name,
+                keywords=keywords,
+                description=description
+            )
     
     def _update_metadata(
         self,

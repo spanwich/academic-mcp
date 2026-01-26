@@ -42,7 +42,9 @@ database = Database(config.database_url)
 database.create_tables()
 vector_store = VectorStore(
     persist_directory=config.chroma_persist_dir,
-    embedding_model=config.embedding_model
+    embedding_model=config.embedding_model,
+    embedding_backend=config.embedding_backend,
+    ollama_host=config.ollama_host
 )
 
 # Lazy-loaded components
@@ -997,8 +999,8 @@ async def _query_paper(args: dict):
 
 import signal
 
-# Shutdown flag
-_shutdown_event = None
+# Track signal count for force exit
+_signal_count = 0
 
 
 def _cleanup():
@@ -1014,74 +1016,40 @@ def _cleanup():
     except Exception as e:
         print(f"  ✗ Database cleanup error: {e}", file=sys.stderr)
     
-    # Close vector store
-    try:
-        if vector_store and hasattr(vector_store, '_client'):
-            # ChromaDB cleanup if needed
-            print("  ✓ Vector store closed", file=sys.stderr)
-    except Exception as e:
-        print(f"  ✗ Vector store cleanup error: {e}", file=sys.stderr)
-    
     print("Goodbye!", file=sys.stderr)
 
 
 def _signal_handler(signum, frame):
     """Handle shutdown signals."""
+    global _signal_count
+    _signal_count += 1
+    
     import sys
     sig_name = signal.Signals(signum).name
-    print(f"\nReceived {sig_name}, initiating graceful shutdown...", file=sys.stderr)
     
-    if _shutdown_event:
-        _shutdown_event.set()
-    else:
-        # Fallback: direct cleanup and exit
+    if _signal_count == 1:
+        print(f"\n{sig_name} received. Shutting down... (press again to force)", file=sys.stderr)
         _cleanup()
         sys.exit(0)
+    else:
+        # Force exit on second signal
+        print(f"\nForce exit.", file=sys.stderr)
+        os._exit(1)
 
 
 async def main():
-    global _shutdown_event
-    _shutdown_event = asyncio.Event()
-    
-    # Register signal handlers
-    loop = asyncio.get_event_loop()
-    
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, lambda s=sig: _signal_handler(s, None))
-        except NotImplementedError:
-            # Windows doesn't support add_signal_handler
-            signal.signal(sig, _signal_handler)
+    # Register signal handlers (simple approach that works)
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
     
     try:
         async with stdio_server() as (read_stream, write_stream):
-            # Create a task for the server
-            server_task = asyncio.create_task(
-                server.run(
-                    read_stream,
-                    write_stream,
-                    server.create_initialization_options()
-                )
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
             )
-            
-            # Create a task for shutdown monitoring
-            shutdown_task = asyncio.create_task(_shutdown_event.wait())
-            
-            # Wait for either server to finish or shutdown signal
-            done, pending = await asyncio.wait(
-                [server_task, shutdown_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            # Cancel pending tasks
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-    
-    except asyncio.CancelledError:
+    except Exception:
         pass
     finally:
         _cleanup()
@@ -1091,5 +1059,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Handle Ctrl+C if it slips through
-        _cleanup()
+        pass  # Already handled by signal handler

@@ -47,28 +47,38 @@ class ProcessingStatus(str, Enum):
 class Domain(Base):
     """
     Self-organizing domain taxonomy.
-    
+
     Domains are created by LLM during import, reused when similar.
     Specific and research-actionable (not broad categories).
+
+    v3.3.1: Added aggregated_keywords for embedding-based similarity matching.
     """
     __tablename__ = "domains"
-    
+
     domain_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    
+
     # Domain name (specific, research-actionable)
     name: Mapped[str] = mapped_column(unique=True, index=True)
     # e.g., "microkernel formal verification using Isabelle"
-    
+
+    # Description of domain (for embedding)
+    description: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    # e.g., "Papers studying formal verification of microkernel operating systems"
+
+    # Aggregated keywords from all papers in this domain (for embedding)
+    aggregated_keywords: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # e.g., ["sel4", "isabelle", "formal verification", "microkernel"]
+
     # Stats
     paper_count: Mapped[int] = mapped_column(default=0)
-    
+
     # When created
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    
+
     # Optional: broader category for grouping (UI only, not used in search)
     parent_category: Mapped[Optional[str]] = mapped_column(default=None)
     # e.g., "formal verification" - for grouping only
-    
+
     def __repr__(self) -> str:
         return f"Domain(name={self.name!r}, papers={self.paper_count})"
 

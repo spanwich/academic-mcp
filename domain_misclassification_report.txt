@@ -1,0 +1,1305 @@
+================================================================================
+DOMAIN MISCLASSIFICATION ANALYSIS REPORT
+Generated: 2026-01-27T02:46:35.468815
+================================================================================
+
+SUMMARY
+----------------------------------------
+Total papers analyzed: 253
+Misclassified papers: 121
+Correctly classified: 11
+Uncertain (no rule match): 121
+Misclassification rate: 47.8%
+
+================================================================================
+MISCLASSIFIED PAPERS BY CURRENT DOMAIN
+================================================================================
+
+
+### microkernel formal verification using translation-validation framework
+    43 papers need reassignment
+
+    Paper ID: amar_2023_cheriotcompletememory
+    Title: CHERIoT: Complete Memory Safety for Embedded Devices
+    -> Move to: capability hardware for memory safety
+
+    Paper ID: amar_2025_cheriotrtosos
+    Title: CHERIoT RTOS: An OS for Fine-Grained Memory-Safe Compartments on Low-Cost Embedded Devices
+    -> Move to: capability hardware for memory safety
+
+    Paper ID: asvija_2019_securityhardwareassisted
+    Title: Security in hardware assisted virtualization for cloud computing—State of the art issues and challenges
+    -> Move to: virtualization and hypervisor systems
+
+    Paper ID: barham_2003_xenartvirtualization
+    Title: Xen and the art of virtualization
+    -> Move to: virtualization and hypervisor systems
+
+    Paper ID: belt_2023_modeldrivendevelopmentsel4
+    Title: Model-driven development for the seL4 microkernel using the HAMR framework
+    -> Move to: model-driven development for embedded systems
+
+    Paper ID: ben-yehuda_2007_pricesafetyevaluating
+    Title: The price of safety: Evaluating IOMMU performance
+    -> Move to: IOMMU and device isolation
+
+    Paper ID: bock_2020_realtimevirtualizationxvisor
+    Title: Real-time virtualization with Xvisor
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: chaochen_2004_durationcalculus
+    Title: Duration Calculus
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: chen_2024_veldverifiedlinux
+    Title: Veld: Verified Linux Drivers
+    -> Move to: verified device drivers
+
+    Paper ID: dematos_2024_sel4basedtrustedexecution
+    Title: An seL4-based Trusted Execution Environment on RISC-V
+    -> Move to: RISC-V trusted execution
+
+    Paper ID: dewulf_2008_robustsafetytimed
+    Title: Robust safety of timed automata
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: el-rouby_2021_nileosdistributedasymmetric
+    Title: NileOS: A Distributed Asymmetric Core-Based Micro-Kernel for Big Data Processing
+    -> Move to: big data processing systems
+
+    Paper ID: fuchs_2024_safespeculationcheri
+    Title: Safe Speculation for CHERI
+    -> Move to: capability hardware for memory safety
+
+    Paper ID: fung2024attributions
+    Title: Attributions for ML-based ICS anomaly detection: From theory to practice
+    -> Move to: ICS anomaly detection and intrusion prevention
+
+    Paper ID: han2023mytee
+    Title: MyTEE: Own the trusted execution environment on embedded devices
+    -> Move to: trusted execution environments
+
+    Paper ID: heiser_2016_l4microkernels
+    Title: L4 Microkernels
+    -> Move to: L4 microkernel family
+
+    Paper ID: heiser_2020_sel4australia
+    Title: seL4 in Australia
+    -> Move to: seL4 formal verification and deployment
+
+    Paper ID: hwang_2013_componentbasedperformancecomparison
+    Title: A component-based performance comparison of four hypervisors
+    -> Move to: virtualization and hypervisor systems
+
+    Paper ID: kim_2025_verirtendtoendverification
+    Title: VeriRT: An End-to-End Verification Framework for Real-Time Distributed Systems
+    -> Move to: real-time distributed systems verification
+
+    Paper ID: klein_2018_formallyverifiedsoftware
+    Title: Formally verified software in the real world
+    -> Move to: seL4 formal verification and deployment
+
+    Paper ID: kong2025tzdatashield
+    Title: TZ-DATASHIELD: Automated data protection for embedded systems via data-flow-based compartmentalization
+    -> Move to: trusted execution environments
+
+    Paper ID: kuz_2007_camkescomponentmodel
+    Title: CAmkES: A component model for secure microkernel-based embedded systems
+    -> Move to: CAmkES component architecture
+
+    Paper ID: lattuada_2023_verusverifyingrust
+    Title: Verus: Verifying Rust Programs using Linear Ghost Types
+    -> Move to: Rust program verification
+
+    Paper ID: lee_2017_otidsnovelintrusion
+    Title: OTIDS: A Novel Intrusion Detection System for In-vehicle Network by Using Remote Frame
+    -> Move to: automotive and in-vehicle network security
+
+    Paper ID: luo2024dynpre
+    Title: DynPRE: Protocol reverse engineering via dynamic inference
+    -> Move to: protocol reverse engineering and analysis
+
+    Paper ID: mckee_2022_preventingkernelhacks
+    Title: Preventing Kernel Hacks with HAKCs
+    -> Move to: kernel compartmentalization
+
+    Paper ID: murguia_2016_cusumchisquaredattack
+    Title: CUSUM and chi-squared attack detection of compromised sensors
+    -> Move to: cyber-physical systems sensor security
+
+    Paper ID: narayanan_2019_lxdsisolationkernel
+    Title: LXDs: Towards Isolation of Kernel Subsystems
+    -> Move to: kernel compartmentalization
+
+    Paper ID: narayanan_2020_lightweightkernelisolation
+    Title: Lightweight kernel isolation with virtualization and VM functions
+    -> Move to: kernel compartmentalization
+
+    Paper ID: nunes_2023_parselverifiedrootoftrust
+    Title: PARseL: Towards a Verified Root-of-Trust over seL4
+    -> Move to: seL4 trusted computing
+
+    Paper ID: parker_2023_highperformancenetworkingsel4
+    Title: High-performance Networking on {seL4}
+    -> Move to: seL4 networking
+
+    Paper ID: peterbishop_2023_iec61850principles
+    Title: IEC 61850 Principles and Applications to Electric Power Systems
+    -> Move to: ICS/SCADA protocols and power grid communications
+
+    Paper ID: ramananandro_2019_everparseverifiedsecure
+    Title: EverParse: Verified Secure Zero-Copy Parsers for Authenticated Message Formats
+    -> Move to: verified secure parsers
+
+    Paper ID: sadlier__nationaldatainfrastructure
+    Title: National Data Infrastructure
+    -> Move to: data infrastructure and governance
+
+    Paper ID: sewell_2016_completehighassurancedetermination
+    Title: Complete, High-Assurance Determination of Loop Bounds and Infeasible Paths for WCET Analysis
+    -> Move to: WCET analysis and loop bound determination
+
+    Paper ID: shi2024ipea
+    Title: Facilitating non-intrusive in-vivo firmware testing with stateless instrumentation
+    -> Move to: firmware testing and instrumentation
+
+    Paper ID: starostin_2008_correctmicrokernelprimitives
+    Title: Correct Microkernel Primitives
+    -> Move to: microkernel primitives verification
+
+    Paper ID: t.murray_2013_sel4generalpurpose
+    Title: seL4: From General Purpose to a Proof of Information Flow Enforcement
+    -> Move to: seL4 information flow verification
+
+    Paper ID: ting_2018_isolationkernelits
+    Title: Isolation Kernel and Its Effect on SVM
+    -> Move to: machine learning kernel methods
+
+    Paper ID: ting_2020_isolationdistributionalkernel
+    Title: Isolation Distributional Kernel: A New Tool for Kernel based Anomaly Detection
+    -> Move to: machine learning kernel methods
+
+    Paper ID: yadlapalli_2022_gguardenablingleakageresilient
+    Title: gGuard: Enabling Leakage-Resilient Memory Isolation in GPU-Accelerated Autonomous Embedded Systems
+    -> Move to: GPU security and isolation
+
+    Paper ID: zakharov_2015_configurabletoolsetstatic
+    Title: Configurable toolset for static verification of operating systems kernel modules
+    -> Move to: static verification of operating systems
+
+    Paper ID: zhao__verifyingdevicedrivers
+    Title: Verifying Device Drivers with Pancake
+    -> Move to: verified device drivers
+
+
+### mixed-criticality scheduling with temporal isolation
+    40 papers need reassignment
+
+    Paper ID: __fundamentalscrossdomain
+    Title: Fundamentals of Cross Domain Solutions (October 2021)
+    -> Move to: cross-domain security solutions
+
+    Paper ID: __introductioncrossdomain
+    Title: Introduction to Cross Domain Solutions (October 2021)
+    -> Move to: cross-domain security solutions
+
+    Paper ID: alonso_2022_influencevirtualizationrealtime
+    Title: The influence of virtualization on real-time systems' interrupts in embedded SoC platforms
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: alur_1994_theorytimedautomata
+    Title: A theory of timed automata
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: asmussen_2025_distrustingcoresseparating
+    Title: Distrusting cores by separating computation from isolation
+    -> Move to: hardware-based isolation
+
+    Paper ID: bengtsson_1996_uppaalatoolsuite
+    Title: UPPAAL-a tool suite for automatic verification of real-time systems
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: cinque_2022_virtualizingmixedcriticalitysystems
+    Title: Virtualizing mixed-criticality systems: A survey on industrial trends and issues
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: crespo_2010_partitionedembeddedarchitecture
+    Title: Partitioned Embedded Architecture Based on Hypervisor: The XtratuM Approach
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: dierks_2001_plcautomatanewclass
+    Title: PLC-automata: a new class of implementable real-time automata
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: edward_2018_efficienttaskscheduling
+    Title: An efficient task scheduling algorithm for heterogeneous multiprocessing environments
+    -> Move to: heterogeneous multiprocessor scheduling
+
+    Paper ID: esper_2015_howrealisticmixedcriticality
+    Title: How realistic is the mixed-criticality real-time system model?
+    -> Move to: real-time systems scheduling
+
+    Paper ID: esper_2018_industrialviewcommon
+    Title: An industrial view on the common academic understanding of mixed-criticality systems
+    -> Move to: real-time systems scheduling
+
+    Paper ID: fong_1993_heterogeneousmultiprocessingcomputer
+    Title: A heterogeneous multiprocessing computer system with shared memory
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: gracioli_2019_designingmixedcriticality
+    Title: Designing mixed criticality applications on modern heterogeneous mpsoc platforms
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: harris_2025_performancemodelingnonuniform
+    Title: Performance Modeling of Non-Uniform Heterogeneous Platforms
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: helmke2025firmware
+    Title: Mens sana in corpore sano: Sound firmware corpora for vulnerability research
+    -> Move to: firmware security and vulnerability research
+
+    Paper ID: holzmann_2006_power10rules
+    Title: The power of 10: rules for developing safety-critical code
+    -> Move to: safety-critical coding standards
+
+    Paper ID: hughes_2019_quantifyingperformancedeterminism
+    Title: Quantifying Performance Determinism in Virtualized Mixed-Criticality Systems
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: khan_2023_ecembeddedsystems
+    Title: EC: Embedded Systems Compartmentalization via Intra-Kernel Isolation
+    -> Move to: kernel compartmentalization
+
+    Paper ID: kloda_2023_lazyloadscheduling
+    Title: Lazy Load Scheduling for Mixed-criticality Applications in Heterogeneous MPSoCs
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: l.xu_2016_faulttolerantrealtimescheduling
+    Title: Towards Fault-Tolerant Real-Time Scheduling in the seL4 Microkernel
+    -> Move to: real-time systems scheduling
+
+    Paper ID: lavernelle_2024_assessmentspatialisolation
+    Title: Assessment of spatial isolation in Jailhouse: Towards a generic approach
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: lee_2023_estimatingprobabilisticsafe
+    Title: Estimating Probabilistic Safe WCET Ranges of Real-Time Systems at Design Stages
+    -> Move to: real-time systems scheduling
+
+    Paper ID: lehmann_2025_modeltemplatereachabilitybased
+    Title: A model template for reachability-based containment checking of imprecise observations in timed automata
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: lehmann_2025_provablysafecontroller
+    Title: A provably safe controller for the needle-steering problem using online strategy synthesis
+    -> Move to: timed automata and real-time verification
+
+    Paper ID: martins_2023_sheddinglightstatic
+    Title: Shedding Light on Static Partitioning Hypervisors for Arm-based Mixed-Criticality Systems
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: minanda_2025_modifiedfirmwarebasedboot
+    Title: Modified Firmware-Based Boot Synchronization and I/O Isolation for Vehicle Heterogeneous Multiprocessor Systems
+    -> Move to: software-defined vehicles
+
+    Paper ID: queiroz_2023_testinglimitsgeneralpurpose
+    Title: Testing the limits of general-purpose hypervisors for real-time control systems
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: ribeiro_2023_digitaltwinmigration
+    Title: Digital Twin Migration using the OKD platform: A Use-Case for Emergency Vehicles
+    -> Move to: digital twins and cloud orchestration
+
+    Paper ID: sensaoui_2019_indepthstudympubased
+    Title: An In-depth Study of MPU-Based Isolation Techniques
+    -> Move to: MPU-based embedded isolation
+
+    Paper ID: shen_2022_shyperembeddedhypervisor
+    Title: Shyper: An embedded hypervisor applying hierarchical resource isolation strategies for mixed-criticality systems
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: stouffer_2023_guideoperationaltechnology
+    Title: Guide to Operational Technology (OT) Security
+    -> Move to: operational technology (OT) security
+
+    Paper ID: sudvarg_2022_concurrencyframeworkpriorityaware
+    Title: A Concurrency Framework for Priority-Aware Intercomponent Requests in CAmkES on seL4
+    -> Move to: CAmkES component architecture
+
+    Paper ID: valente_2025_newhwsw
+    Title: A New HW/SW Co-Design Approach for Monitored Systems-on-Chip Development
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: wang_2025_securitydriventaskscheduling
+    Title: Security-Driven Task Scheduling Under Deadline Constraints for MPSoCs With Untrusted 3PIP Cores
+    -> Move to: heterogeneous multiprocessor scheduling
+
+    Paper ID: west_2016_virtualizedseparationkernel
+    Title: A Virtualized Separation Kernel for Mixed-Criticality Systems
+    -> Move to: separation kernel and MILS architecture
+
+    Paper ID: willcock_2025_fullypolynomialtime
+    Title: A Fully Polynomial Time Approximation Scheme for Adaptive Variable Rate Task Demand
+    -> Move to: real-time systems scheduling
+
+    Paper ID: wulf_2022_virtualizationreconfigurablemixedcriticality
+    Title: Virtualization of Reconfigurable Mixed-Criticality Systems
+    -> Move to: partitioning hypervisors for embedded systems
+
+    Paper ID: xu_2025_bettertogetherinterferenceawareframework
+    Title: BetterTogether: An Interference-Aware Framework for Fine-grained Software Pipelining on Heterogeneous SoCs
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: yao_2025_semanticlogicalrelations
+    Title: Semantic Logical Relations for Timed Message-Passing Protocols
+    -> Move to: timed message-passing protocols
+
+
+### microkernel formal verification using Isabelle/HOL
+    7 papers need reassignment
+
+    Paper ID: ahmadi_2024_operationallyprovingmemory
+    Title: Operationally proving memory access violations in Isabelle/HOL
+    -> Move to: trusted execution environments
+
+    Paper ID: hu_2024_workinprogressunishyperreliable
+    Title: Work-in-Progress: Unishyper, A Reliable Rust-based Unikernel for Embedded Scenarios
+    -> Move to: real-time operating systems
+
+    Paper ID: klein_2009_sel4formalverification
+    Title: seL4: formal verification of an OS kernel
+    -> Move to: trusted execution environments
+
+    Paper ID: kuz__camkesoverviewbuilding
+    Title: • CAmkES overview • Building and running • RPC • Dataports • Events • A?ributes
+    -> Move to: CAmkES component architecture
+
+    Paper ID: lim__securingmonolithickernels
+    Title: Securing Monolithic Kernels using Compartmentalization
+    -> Move to: kernel compartmentalization
+
+    Paper ID: lindner_2019_trabintrustworthyanalyses
+    Title: TrABin: Trustworthy analyses of binaries
+    -> Move to: Rust program verification
+
+    Paper ID: wang_2023_embeddedrealtimeoperating
+    Title: Embedded and Real-Time Operating Systems
+    -> Move to: real-time operating systems
+
+
+### program slicing and context-aware program repair
+    5 papers need reassignment
+
+    Paper ID: hoang_2020_cc2vecdistributedrepresentations
+    Title: CC2Vec: Distributed Representations of Code Changes
+    -> Move to: deep learning and neural networks
+
+    Paper ID: sintaha_2023_katanadualslicing
+    Title: Katana: Dual Slicing Based Context for Learning Bug Fixes
+    -> Move to: deep learning and neural networks
+
+    Paper ID: tian_2021_evaluatingrepresentationlearning
+    Title: Evaluating Representation Learning of Code Changes for Predicting Patch Correctness in Program Repair
+    -> Move to: deep learning and neural networks
+
+    Paper ID: white_2019_sortingtransformingprogram
+    Title: Sorting and Transforming Program Repair Ingredients via Deep Learning Code Similarities
+    -> Move to: deep learning and neural networks
+
+    Paper ID: xiong_2018_identifyingpatchcorrectness
+    Title: Identifying patch correctness in test-based program repair
+    -> Move to: trusted execution environments
+
+
+### real-time systems
+    5 papers need reassignment
+
+    Paper ID: kovacshazy_2022_applicationexperimentstandard
+    Title: Application Experiment with the Standard Linux Services for Asymmetric Multiprocessing on Heterogeneous System on a Chips
+    -> Move to: real-time operating systems
+
+    Paper ID: neto_2025_peartsprovableexecution
+    Title: PEARTS: Provable Execution in Real-Time Embedded Systems
+    -> Move to: trusted execution environments
+
+    Paper ID: oikawa_2012_architectingrtosextensibility
+    Title: Architecting RTOS for Extensibility by Heterogeneous Multiprocessing with Proxy Kernels
+    -> Move to: real-time operating systems
+
+    Paper ID: parada_2026_digitaltwinadaptive
+    Title: Digital Twin for Adaptive Adversary Emulation in IIoT Control Networks
+    -> Move to: digital twins and cloud orchestration
+
+    Paper ID: said_2024_realtimestabilitymonitoring
+    Title: Real-time Stability Monitoring of Power Systems Using Instantaneous Lyapunov Exponent and Malthusian Parameter
+    -> Move to: real-time operating systems
+
+
+### cyber-physical systems security
+    4 papers need reassignment
+
+    Paper ID: biondi_2021_spheremultisocarchitecture
+    Title: SPHERE: A Multi-SoC Architecture for Next-Generation Cyber-Physical Systems Based on Heterogeneous Platforms
+    -> Move to: heterogeneous multiprocessor systems
+
+    Paper ID: cisco2022ot
+    Title: OT security customer survey report
+    -> Move to: operational technology (OT) security
+
+    Paper ID: m.liu_2022_failsafesecuringcyberphysical
+    Title: Fail-Safe: Securing Cyber-Physical Systems against Hidden Sensor Attacks
+    -> Move to: cyber-physical systems sensor security
+
+    Paper ID: vahidi_2022_systematicevaluationautomotive
+    Title: Systematic Evaluation of Automotive Intrusion Detection Datasets
+    -> Move to: automotive and in-vehicle network security
+
+
+### automated program repair
+    3 papers need reassignment
+
+    Paper ID: lin_2022_contextawarecodechange
+    Title: Context-Aware Code Change Embedding for Better Patch Correctness Assessment
+    -> Move to: deep learning and neural networks
+
+    Paper ID: liu_2019_avatarfixingsemantic
+    Title: AVATAR: Fixing Semantic Bugs with Fix Patterns of Static Analysis Violations
+    -> Move to: static verification of operating systems
+
+    Paper ID: lutellier_2020_coconutcombiningcontextaware
+    Title: CoCoNuT: combining context-aware neural translation models using ensemble for program repair
+    -> Move to: deep learning and neural networks
+
+
+### ICS/SCADA protocol security analysis
+    2 papers need reassignment
+
+    Paper ID: ning_2025_malfmultiagentllm
+    Title: MALF: A Multi-Agent LLM Framework for Intelligent Fuzzing of Industrial Control Protocols
+    -> Move to: ICS/SCADA protocols and power grid communications
+
+    Paper ID: sans2025ics
+    Title: State of ICS/OT security 2025
+    -> Move to: operational technology (OT) security
+
+
+### acoustic side-channel attacks on input devices
+    2 papers need reassignment
+
+    Paper ID: mahmud_2025_autoparllmgnnguidedcontext
+    Title: AutoParLLM: GNN-guided Context Generation for Zero-Shot Code Parallelization using LLMs
+    -> Move to: deep learning and neural networks
+
+    Paper ID: roeschlin2023edgetdc
+    Title: EdgeTDC: On the security of time difference of arrival measurements in CAN bus systems
+    -> Move to: automotive and in-vehicle network security
+
+
+### cross-domain solutions for aviation
+    2 papers need reassignment
+
+    Paper ID: australiansignalsdirectorate_2021_fundamentalscrossdomain
+    Title: Fundamentals of Cross Domain Solutions (October 2021)
+    -> Move to: cross-domain security solutions
+
+    Paper ID: federici_2024_highassurancecrossdomainsolutions
+    Title: Towards High-Assurance Cross-Domain Solutions for Connected Aviation
+    -> Move to: cross-domain security solutions
+
+
+### operating systems reliability
+    2 papers need reassignment
+
+    Paper ID: chou_2001_empiricalstudyoperating
+    Title: An empirical study of operating systems errors
+    -> Move to: static verification of operating systems
+
+    Paper ID: chou_2001_empiricalstudyoperatinga
+    Title: An empirical study of operating systems errors
+    -> Move to: static verification of operating systems
+
+
+### CSCW (Computer-Supported Cooperative Work)
+    1 papers need reassignment
+
+    Paper ID: mavromatis_2025_gnnraggraphneural
+    Title: GNN-RAG: Graph Neural Retrieval for Efficient Large Language Model Reasoning on Knowledge Graphs
+    -> Move to: deep learning and neural networks
+
+
+### ICS active defense architecture
+    1 papers need reassignment
+
+    Paper ID: haidong_2021_tmacactivedefense
+    Title: TMAC: an Active Defense Architecture adapted to Microkernel Operating System for Power ICS
+    -> Move to: trusted execution environments
+
+
+### ICS/SCADA testbed simulation
+    1 papers need reassignment
+
+    Paper ID: dehlaghi-ghadim_2023_icssimframeworkbuilding
+    Title: ICSSIM — A framework for building industrial control systems security testbeds
+    -> Move to: ICS anomaly detection and intrusion prevention
+
+
+### data-center hardware architecture
+    1 papers need reassignment
+
+    Paper ID: 10.1145/3546591.3547527
+    Title: Towards a fully disaggregated and programmable data center
+    -> Move to: heterogeneous multiprocessor systems
+
+
+### underactuated robotics
+    1 papers need reassignment
+
+    Paper ID: lamshoft2020assessment
+    Title: Assessment of hidden channel attacks: Targeting Modbus/TCP
+    -> Move to: ICS/SCADA protocols and power grid communications
+
+
+### vulnerability detection in IoT firmware
+    1 papers need reassignment
+
+    Paper ID: gao2024hermescan
+    Title: Faster and better: Detecting vulnerabilities in linux-based IoT firmware with optimized reaching definition analysis
+    -> Move to: firmware security and vulnerability research
+
+
+================================================================================
+NEW DOMAIN DESTINATIONS
+================================================================================
+
+  CAmkES component architecture: 3 papers incoming
+  GPU security and isolation: 1 papers incoming
+  ICS anomaly detection and intrusion prevention: 2 papers incoming
+  ICS/SCADA protocols and power grid communications: 3 papers incoming
+  IOMMU and device isolation: 1 papers incoming
+  L4 microkernel family: 1 papers incoming
+  MPU-based embedded isolation: 1 papers incoming
+  RISC-V trusted execution: 1 papers incoming
+  Rust program verification: 2 papers incoming
+  WCET analysis and loop bound determination: 1 papers incoming
+  automotive and in-vehicle network security: 3 papers incoming
+  big data processing systems: 1 papers incoming
+  capability hardware for memory safety: 3 papers incoming
+  cross-domain security solutions: 4 papers incoming
+  cyber-physical systems sensor security: 2 papers incoming
+  data infrastructure and governance: 1 papers incoming
+  deep learning and neural networks: 8 papers incoming
+  digital twins and cloud orchestration: 2 papers incoming
+  firmware security and vulnerability research: 2 papers incoming
+  firmware testing and instrumentation: 1 papers incoming
+  hardware-based isolation: 1 papers incoming
+  heterogeneous multiprocessor scheduling: 2 papers incoming
+  heterogeneous multiprocessor systems: 8 papers incoming
+  kernel compartmentalization: 5 papers incoming
+  machine learning kernel methods: 2 papers incoming
+  microkernel primitives verification: 1 papers incoming
+  model-driven development for embedded systems: 1 papers incoming
+  operational technology (OT) security: 3 papers incoming
+  partitioning hypervisors for embedded systems: 10 papers incoming
+  protocol reverse engineering and analysis: 1 papers incoming
+  real-time distributed systems verification: 1 papers incoming
+  real-time operating systems: 5 papers incoming
+  real-time systems scheduling: 5 papers incoming
+  safety-critical coding standards: 1 papers incoming
+  seL4 formal verification and deployment: 2 papers incoming
+  seL4 information flow verification: 1 papers incoming
+  seL4 networking: 1 papers incoming
+  seL4 trusted computing: 1 papers incoming
+  separation kernel and MILS architecture: 1 papers incoming
+  software-defined vehicles: 1 papers incoming
+  static verification of operating systems: 4 papers incoming
+  timed automata and real-time verification: 7 papers incoming
+  timed message-passing protocols: 1 papers incoming
+  trusted execution environments: 7 papers incoming
+  verified device drivers: 2 papers incoming
+  verified secure parsers: 1 papers incoming
+  virtualization and hypervisor systems: 3 papers incoming
+
+================================================================================
+DETAILED REASSIGNMENT LIST
+================================================================================
+
+- 10.1145/3546591.3547527
+  Title: Towards a fully disaggregated and programmable data center
+  FROM: data-center hardware architecture
+  TO:   heterogeneous multiprocessor systems
+
+- __fundamentalscrossdomain
+  Title: Fundamentals of Cross Domain Solutions (October 2021)
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   cross-domain security solutions
+
+- __introductioncrossdomain
+  Title: Introduction to Cross Domain Solutions (October 2021)
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   cross-domain security solutions
+
+- ahmadi_2024_operationallyprovingmemory
+  Title: Operationally proving memory access violations in Isabelle/HOL
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   trusted execution environments
+
+- alonso_2022_influencevirtualizationrealtime
+  Title: The influence of virtualization on real-time systems' interrupts in embedded SoC platforms
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- alur_1994_theorytimedautomata
+  Title: A theory of timed automata
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   timed automata and real-time verification
+
+- amar_2023_cheriotcompletememory
+  Title: CHERIoT: Complete Memory Safety for Embedded Devices
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   capability hardware for memory safety
+
+- amar_2025_cheriotrtosos
+  Title: CHERIoT RTOS: An OS for Fine-Grained Memory-Safe Compartments on Low-Cost Embedded Devices
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   capability hardware for memory safety
+
+- asmussen_2025_distrustingcoresseparating
+  Title: Distrusting cores by separating computation from isolation
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   hardware-based isolation
+
+- asvija_2019_securityhardwareassisted
+  Title: Security in hardware assisted virtualization for cloud computing—State of the art issues and challenges
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   virtualization and hypervisor systems
+
+- australiansignalsdirectorate_2021_fundamentalscrossdomain
+  Title: Fundamentals of Cross Domain Solutions (October 2021)
+  FROM: cross-domain solutions for aviation
+  TO:   cross-domain security solutions
+
+- barham_2003_xenartvirtualization
+  Title: Xen and the art of virtualization
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   virtualization and hypervisor systems
+
+- belt_2023_modeldrivendevelopmentsel4
+  Title: Model-driven development for the seL4 microkernel using the HAMR framework
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   model-driven development for embedded systems
+
+- ben-yehuda_2007_pricesafetyevaluating
+  Title: The price of safety: Evaluating IOMMU performance
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   IOMMU and device isolation
+
+- bengtsson_1996_uppaalatoolsuite
+  Title: UPPAAL-a tool suite for automatic verification of real-time systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   timed automata and real-time verification
+
+- biondi_2021_spheremultisocarchitecture
+  Title: SPHERE: A Multi-SoC Architecture for Next-Generation Cyber-Physical Systems Based on Heterogeneous Platforms
+  FROM: cyber-physical systems security
+  TO:   heterogeneous multiprocessor systems
+
+- bock_2020_realtimevirtualizationxvisor
+  Title: Real-time virtualization with Xvisor
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   partitioning hypervisors for embedded systems
+
+- chaochen_2004_durationcalculus
+  Title: Duration Calculus
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   timed automata and real-time verification
+
+- chen_2024_veldverifiedlinux
+  Title: Veld: Verified Linux Drivers
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   verified device drivers
+
+- chou_2001_empiricalstudyoperating
+  Title: An empirical study of operating systems errors
+  FROM: operating systems reliability
+  TO:   static verification of operating systems
+
+- chou_2001_empiricalstudyoperatinga
+  Title: An empirical study of operating systems errors
+  FROM: operating systems reliability
+  TO:   static verification of operating systems
+
+- cinque_2022_virtualizingmixedcriticalitysystems
+  Title: Virtualizing mixed-criticality systems: A survey on industrial trends and issues
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- cisco2022ot
+  Title: OT security customer survey report
+  FROM: cyber-physical systems security
+  TO:   operational technology (OT) security
+
+- crespo_2010_partitionedembeddedarchitecture
+  Title: Partitioned Embedded Architecture Based on Hypervisor: The XtratuM Approach
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- dehlaghi-ghadim_2023_icssimframeworkbuilding
+  Title: ICSSIM — A framework for building industrial control systems security testbeds
+  FROM: ICS/SCADA testbed simulation
+  TO:   ICS anomaly detection and intrusion prevention
+
+- dematos_2024_sel4basedtrustedexecution
+  Title: An seL4-based Trusted Execution Environment on RISC-V
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   RISC-V trusted execution
+
+- dewulf_2008_robustsafetytimed
+  Title: Robust safety of timed automata
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   timed automata and real-time verification
+
+- dierks_2001_plcautomatanewclass
+  Title: PLC-automata: a new class of implementable real-time automata
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   timed automata and real-time verification
+
+- edward_2018_efficienttaskscheduling
+  Title: An efficient task scheduling algorithm for heterogeneous multiprocessing environments
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor scheduling
+
+- el-rouby_2021_nileosdistributedasymmetric
+  Title: NileOS: A Distributed Asymmetric Core-Based Micro-Kernel for Big Data Processing
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   big data processing systems
+
+- esper_2015_howrealisticmixedcriticality
+  Title: How realistic is the mixed-criticality real-time system model?
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   real-time systems scheduling
+
+- esper_2018_industrialviewcommon
+  Title: An industrial view on the common academic understanding of mixed-criticality systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   real-time systems scheduling
+
+- federici_2024_highassurancecrossdomainsolutions
+  Title: Towards High-Assurance Cross-Domain Solutions for Connected Aviation
+  FROM: cross-domain solutions for aviation
+  TO:   cross-domain security solutions
+
+- fong_1993_heterogeneousmultiprocessingcomputer
+  Title: A heterogeneous multiprocessing computer system with shared memory
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor systems
+
+- fuchs_2024_safespeculationcheri
+  Title: Safe Speculation for CHERI
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   capability hardware for memory safety
+
+- fung2024attributions
+  Title: Attributions for ML-based ICS anomaly detection: From theory to practice
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   ICS anomaly detection and intrusion prevention
+
+- gao2024hermescan
+  Title: Faster and better: Detecting vulnerabilities in linux-based IoT firmware with optimized reaching definition analysis
+  FROM: vulnerability detection in IoT firmware
+  TO:   firmware security and vulnerability research
+
+- gracioli_2019_designingmixedcriticality
+  Title: Designing mixed criticality applications on modern heterogeneous mpsoc platforms
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor systems
+
+- haidong_2021_tmacactivedefense
+  Title: TMAC: an Active Defense Architecture adapted to Microkernel Operating System for Power ICS
+  FROM: ICS active defense architecture
+  TO:   trusted execution environments
+
+- han2023mytee
+  Title: MyTEE: Own the trusted execution environment on embedded devices
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   trusted execution environments
+
+- harris_2025_performancemodelingnonuniform
+  Title: Performance Modeling of Non-Uniform Heterogeneous Platforms
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor systems
+
+- heiser_2016_l4microkernels
+  Title: L4 Microkernels
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   L4 microkernel family
+
+- heiser_2020_sel4australia
+  Title: seL4 in Australia
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   seL4 formal verification and deployment
+
+- helmke2025firmware
+  Title: Mens sana in corpore sano: Sound firmware corpora for vulnerability research
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   firmware security and vulnerability research
+
+- hoang_2020_cc2vecdistributedrepresentations
+  Title: CC2Vec: Distributed Representations of Code Changes
+  FROM: program slicing and context-aware program repair
+  TO:   deep learning and neural networks
+
+- holzmann_2006_power10rules
+  Title: The power of 10: rules for developing safety-critical code
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   safety-critical coding standards
+
+- hu_2024_workinprogressunishyperreliable
+  Title: Work-in-Progress: Unishyper, A Reliable Rust-based Unikernel for Embedded Scenarios
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   real-time operating systems
+
+- hughes_2019_quantifyingperformancedeterminism
+  Title: Quantifying Performance Determinism in Virtualized Mixed-Criticality Systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- hwang_2013_componentbasedperformancecomparison
+  Title: A component-based performance comparison of four hypervisors
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   virtualization and hypervisor systems
+
+- khan_2023_ecembeddedsystems
+  Title: EC: Embedded Systems Compartmentalization via Intra-Kernel Isolation
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   kernel compartmentalization
+
+- kim_2025_verirtendtoendverification
+  Title: VeriRT: An End-to-End Verification Framework for Real-Time Distributed Systems
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   real-time distributed systems verification
+
+- klein_2009_sel4formalverification
+  Title: seL4: formal verification of an OS kernel
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   trusted execution environments
+
+- klein_2018_formallyverifiedsoftware
+  Title: Formally verified software in the real world
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   seL4 formal verification and deployment
+
+- kloda_2023_lazyloadscheduling
+  Title: Lazy Load Scheduling for Mixed-criticality Applications in Heterogeneous MPSoCs
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor systems
+
+- kong2025tzdatashield
+  Title: TZ-DATASHIELD: Automated data protection for embedded systems via data-flow-based compartmentalization
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   trusted execution environments
+
+- kovacshazy_2022_applicationexperimentstandard
+  Title: Application Experiment with the Standard Linux Services for Asymmetric Multiprocessing on Heterogeneous System on a Chips
+  FROM: real-time systems
+  TO:   real-time operating systems
+
+- kuz_2007_camkescomponentmodel
+  Title: CAmkES: A component model for secure microkernel-based embedded systems
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   CAmkES component architecture
+
+- kuz__camkesoverviewbuilding
+  Title: • CAmkES overview • Building and running • RPC • Dataports • Events • A?ributes
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   CAmkES component architecture
+
+- l.xu_2016_faulttolerantrealtimescheduling
+  Title: Towards Fault-Tolerant Real-Time Scheduling in the seL4 Microkernel
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   real-time systems scheduling
+
+- lamshoft2020assessment
+  Title: Assessment of hidden channel attacks: Targeting Modbus/TCP
+  FROM: underactuated robotics
+  TO:   ICS/SCADA protocols and power grid communications
+
+- lattuada_2023_verusverifyingrust
+  Title: Verus: Verifying Rust Programs using Linear Ghost Types
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   Rust program verification
+
+- lavernelle_2024_assessmentspatialisolation
+  Title: Assessment of spatial isolation in Jailhouse: Towards a generic approach
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- lee_2017_otidsnovelintrusion
+  Title: OTIDS: A Novel Intrusion Detection System for In-vehicle Network by Using Remote Frame
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   automotive and in-vehicle network security
+
+- lee_2023_estimatingprobabilisticsafe
+  Title: Estimating Probabilistic Safe WCET Ranges of Real-Time Systems at Design Stages
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   real-time systems scheduling
+
+- lehmann_2025_modeltemplatereachabilitybased
+  Title: A model template for reachability-based containment checking of imprecise observations in timed automata
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   timed automata and real-time verification
+
+- lehmann_2025_provablysafecontroller
+  Title: A provably safe controller for the needle-steering problem using online strategy synthesis
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   timed automata and real-time verification
+
+- lim__securingmonolithickernels
+  Title: Securing Monolithic Kernels using Compartmentalization
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   kernel compartmentalization
+
+- lin_2022_contextawarecodechange
+  Title: Context-Aware Code Change Embedding for Better Patch Correctness Assessment
+  FROM: automated program repair
+  TO:   deep learning and neural networks
+
+- lindner_2019_trabintrustworthyanalyses
+  Title: TrABin: Trustworthy analyses of binaries
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   Rust program verification
+
+- liu_2019_avatarfixingsemantic
+  Title: AVATAR: Fixing Semantic Bugs with Fix Patterns of Static Analysis Violations
+  FROM: automated program repair
+  TO:   static verification of operating systems
+
+- luo2024dynpre
+  Title: DynPRE: Protocol reverse engineering via dynamic inference
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   protocol reverse engineering and analysis
+
+- lutellier_2020_coconutcombiningcontextaware
+  Title: CoCoNuT: combining context-aware neural translation models using ensemble for program repair
+  FROM: automated program repair
+  TO:   deep learning and neural networks
+
+- m.liu_2022_failsafesecuringcyberphysical
+  Title: Fail-Safe: Securing Cyber-Physical Systems against Hidden Sensor Attacks
+  FROM: cyber-physical systems security
+  TO:   cyber-physical systems sensor security
+
+- mahmud_2025_autoparllmgnnguidedcontext
+  Title: AutoParLLM: GNN-guided Context Generation for Zero-Shot Code Parallelization using LLMs
+  FROM: acoustic side-channel attacks on input devices
+  TO:   deep learning and neural networks
+
+- martins_2023_sheddinglightstatic
+  Title: Shedding Light on Static Partitioning Hypervisors for Arm-based Mixed-Criticality Systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- mavromatis_2025_gnnraggraphneural
+  Title: GNN-RAG: Graph Neural Retrieval for Efficient Large Language Model Reasoning on Knowledge Graphs
+  FROM: CSCW (Computer-Supported Cooperative Work)
+  TO:   deep learning and neural networks
+
+- mckee_2022_preventingkernelhacks
+  Title: Preventing Kernel Hacks with HAKCs
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   kernel compartmentalization
+
+- minanda_2025_modifiedfirmwarebasedboot
+  Title: Modified Firmware-Based Boot Synchronization and I/O Isolation for Vehicle Heterogeneous Multiprocessor Systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   software-defined vehicles
+
+- murguia_2016_cusumchisquaredattack
+  Title: CUSUM and chi-squared attack detection of compromised sensors
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   cyber-physical systems sensor security
+
+- narayanan_2019_lxdsisolationkernel
+  Title: LXDs: Towards Isolation of Kernel Subsystems
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   kernel compartmentalization
+
+- narayanan_2020_lightweightkernelisolation
+  Title: Lightweight kernel isolation with virtualization and VM functions
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   kernel compartmentalization
+
+- neto_2025_peartsprovableexecution
+  Title: PEARTS: Provable Execution in Real-Time Embedded Systems
+  FROM: real-time systems
+  TO:   trusted execution environments
+
+- ning_2025_malfmultiagentllm
+  Title: MALF: A Multi-Agent LLM Framework for Intelligent Fuzzing of Industrial Control Protocols
+  FROM: ICS/SCADA protocol security analysis
+  TO:   ICS/SCADA protocols and power grid communications
+
+- nunes_2023_parselverifiedrootoftrust
+  Title: PARseL: Towards a Verified Root-of-Trust over seL4
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   seL4 trusted computing
+
+- oikawa_2012_architectingrtosextensibility
+  Title: Architecting RTOS for Extensibility by Heterogeneous Multiprocessing with Proxy Kernels
+  FROM: real-time systems
+  TO:   real-time operating systems
+
+- parada_2026_digitaltwinadaptive
+  Title: Digital Twin for Adaptive Adversary Emulation in IIoT Control Networks
+  FROM: real-time systems
+  TO:   digital twins and cloud orchestration
+
+- parker_2023_highperformancenetworkingsel4
+  Title: High-performance Networking on {seL4}
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   seL4 networking
+
+- peterbishop_2023_iec61850principles
+  Title: IEC 61850 Principles and Applications to Electric Power Systems
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   ICS/SCADA protocols and power grid communications
+
+- queiroz_2023_testinglimitsgeneralpurpose
+  Title: Testing the limits of general-purpose hypervisors for real-time control systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- ramananandro_2019_everparseverifiedsecure
+  Title: EverParse: Verified Secure Zero-Copy Parsers for Authenticated Message Formats
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   verified secure parsers
+
+- ribeiro_2023_digitaltwinmigration
+  Title: Digital Twin Migration using the OKD platform: A Use-Case for Emergency Vehicles
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   digital twins and cloud orchestration
+
+- roeschlin2023edgetdc
+  Title: EdgeTDC: On the security of time difference of arrival measurements in CAN bus systems
+  FROM: acoustic side-channel attacks on input devices
+  TO:   automotive and in-vehicle network security
+
+- sadlier__nationaldatainfrastructure
+  Title: National Data Infrastructure
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   data infrastructure and governance
+
+- said_2024_realtimestabilitymonitoring
+  Title: Real-time Stability Monitoring of Power Systems Using Instantaneous Lyapunov Exponent and Malthusian Parameter
+  FROM: real-time systems
+  TO:   real-time operating systems
+
+- sans2025ics
+  Title: State of ICS/OT security 2025
+  FROM: ICS/SCADA protocol security analysis
+  TO:   operational technology (OT) security
+
+- sensaoui_2019_indepthstudympubased
+  Title: An In-depth Study of MPU-Based Isolation Techniques
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   MPU-based embedded isolation
+
+- sewell_2016_completehighassurancedetermination
+  Title: Complete, High-Assurance Determination of Loop Bounds and Infeasible Paths for WCET Analysis
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   WCET analysis and loop bound determination
+
+- shen_2022_shyperembeddedhypervisor
+  Title: Shyper: An embedded hypervisor applying hierarchical resource isolation strategies for mixed-criticality systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- shi2024ipea
+  Title: Facilitating non-intrusive in-vivo firmware testing with stateless instrumentation
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   firmware testing and instrumentation
+
+- sintaha_2023_katanadualslicing
+  Title: Katana: Dual Slicing Based Context for Learning Bug Fixes
+  FROM: program slicing and context-aware program repair
+  TO:   deep learning and neural networks
+
+- starostin_2008_correctmicrokernelprimitives
+  Title: Correct Microkernel Primitives
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   microkernel primitives verification
+
+- stouffer_2023_guideoperationaltechnology
+  Title: Guide to Operational Technology (OT) Security
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   operational technology (OT) security
+
+- sudvarg_2022_concurrencyframeworkpriorityaware
+  Title: A Concurrency Framework for Priority-Aware Intercomponent Requests in CAmkES on seL4
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   CAmkES component architecture
+
+- t.murray_2013_sel4generalpurpose
+  Title: seL4: From General Purpose to a Proof of Information Flow Enforcement
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   seL4 information flow verification
+
+- tian_2021_evaluatingrepresentationlearning
+  Title: Evaluating Representation Learning of Code Changes for Predicting Patch Correctness in Program Repair
+  FROM: program slicing and context-aware program repair
+  TO:   deep learning and neural networks
+
+- ting_2018_isolationkernelits
+  Title: Isolation Kernel and Its Effect on SVM
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   machine learning kernel methods
+
+- ting_2020_isolationdistributionalkernel
+  Title: Isolation Distributional Kernel: A New Tool for Kernel based Anomaly Detection
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   machine learning kernel methods
+
+- vahidi_2022_systematicevaluationautomotive
+  Title: Systematic Evaluation of Automotive Intrusion Detection Datasets
+  FROM: cyber-physical systems security
+  TO:   automotive and in-vehicle network security
+
+- valente_2025_newhwsw
+  Title: A New HW/SW Co-Design Approach for Monitored Systems-on-Chip Development
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor systems
+
+- wang_2023_embeddedrealtimeoperating
+  Title: Embedded and Real-Time Operating Systems
+  FROM: microkernel formal verification using Isabelle/HOL
+  TO:   real-time operating systems
+
+- wang_2025_securitydriventaskscheduling
+  Title: Security-Driven Task Scheduling Under Deadline Constraints for MPSoCs With Untrusted 3PIP Cores
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor scheduling
+
+- west_2016_virtualizedseparationkernel
+  Title: A Virtualized Separation Kernel for Mixed-Criticality Systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   separation kernel and MILS architecture
+
+- white_2019_sortingtransformingprogram
+  Title: Sorting and Transforming Program Repair Ingredients via Deep Learning Code Similarities
+  FROM: program slicing and context-aware program repair
+  TO:   deep learning and neural networks
+
+- willcock_2025_fullypolynomialtime
+  Title: A Fully Polynomial Time Approximation Scheme for Adaptive Variable Rate Task Demand
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   real-time systems scheduling
+
+- wulf_2022_virtualizationreconfigurablemixedcriticality
+  Title: Virtualization of Reconfigurable Mixed-Criticality Systems
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   partitioning hypervisors for embedded systems
+
+- xiong_2018_identifyingpatchcorrectness
+  Title: Identifying patch correctness in test-based program repair
+  FROM: program slicing and context-aware program repair
+  TO:   trusted execution environments
+
+- xu_2025_bettertogetherinterferenceawareframework
+  Title: BetterTogether: An Interference-Aware Framework for Fine-grained Software Pipelining on Heterogeneous SoCs
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   heterogeneous multiprocessor systems
+
+- yadlapalli_2022_gguardenablingleakageresilient
+  Title: gGuard: Enabling Leakage-Resilient Memory Isolation in GPU-Accelerated Autonomous Embedded Systems
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   GPU security and isolation
+
+- yao_2025_semanticlogicalrelations
+  Title: Semantic Logical Relations for Timed Message-Passing Protocols
+  FROM: mixed-criticality scheduling with temporal isolation
+  TO:   timed message-passing protocols
+
+- zakharov_2015_configurabletoolsetstatic
+  Title: Configurable toolset for static verification of operating systems kernel modules
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   static verification of operating systems
+
+- zhao__verifyingdevicedrivers
+  Title: Verifying Device Drivers with Pancake
+  FROM: microkernel formal verification using translation-validation framework
+  TO:   verified device drivers
+
+================================================================================
+POST-REASSIGNMENT VERIFICATION
+================================================================================
+
+Current Domain Distribution:
+----------------------------------------
+   26 papers: program slicing and context-aware program repair
+   24 papers: automated program repair
+   21 papers: real-time systems
+   20 papers: cyber-physical systems security
+   12 papers: microkernel formal verification using Isabelle/HOL
+   10 papers: partitioning hypervisors for embedded systems
+    8 papers: deep learning and neural networks
+    8 papers: heterogeneous multiprocessor systems
+    7 papers: kernel compartmentalization
+    7 papers: trusted execution environments
+    7 papers: timed automata and real-time verification
+    5 papers: mixed-criticality scheduling with temporal isolation
+    5 papers: real-time operating systems
+    5 papers: real-time systems scheduling
+    4 papers: underactuated robotics
+    4 papers: ICS/SCADA protocol security analysis
+    4 papers: static verification of operating systems
+    4 papers: cross-domain security solutions
+    3 papers: microkernel formal verification using separation logic
+    3 papers: ICS/SCADA protocols and power grid communications
+    3 papers: operational technology (OT) security
+    3 papers: automotive and in-vehicle network security
+    3 papers: CAmkES component architecture
+    3 papers: capability hardware for memory safety
+    3 papers: virtualization and hypervisor systems
+    2 papers: vulnerability detection in IoT firmware
+    2 papers: network segmentation
+    2 papers: ICS industry trends and statistics
+    2 papers: ICS anomaly detection and intrusion prevention
+    2 papers: cyber-physical systems sensor security
+    2 papers: Rust program verification
+    2 papers: verified device drivers
+    2 papers: seL4 formal verification and deployment
+    2 papers: machine learning kernel methods
+    2 papers: heterogeneous multiprocessor scheduling
+    2 papers: firmware security and vulnerability research
+    2 papers: digital twins and cloud orchestration
+    1 papers: acoustic side-channel attacks on input devices
+    1 papers: cyber physical systems
+    1 papers: real-time systems security
+    1 papers: operating systems reliability
+    1 papers: number theory
+    1 papers: CSCW (Computer-Supported Cooperative Work)
+    1 papers: model-driven development for embedded systems
+    1 papers: IOMMU and device isolation
+    1 papers: RISC-V trusted execution
+    1 papers: big data processing systems
+    1 papers: L4 microkernel family
+    1 papers: real-time distributed systems verification
+    1 papers: protocol reverse engineering and analysis
+    1 papers: seL4 trusted computing
+    1 papers: seL4 networking
+    1 papers: verified secure parsers
+    1 papers: data infrastructure and governance
+    1 papers: WCET analysis and loop bound determination
+    1 papers: firmware testing and instrumentation
+    1 papers: microkernel primitives verification
+    1 papers: seL4 information flow verification
+    1 papers: GPU security and isolation
+    1 papers: hardware-based isolation
+    1 papers: safety-critical coding standards
+    1 papers: software-defined vehicles
+    1 papers: MPU-based embedded isolation
+    1 papers: separation kernel and MILS architecture
+    1 papers: timed message-passing protocols
+
+Total papers: 253
+Total domains: 65

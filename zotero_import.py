@@ -19,6 +19,9 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -298,7 +301,7 @@ def cmd_import_all(sync: ZoteroSync, reader: ZoteroReader, force: bool):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import papers from Zotero into MCP database (v3.2)"
+        description="Import papers from Zotero into MCP database (v3.3)"
     )
     
     # Commands

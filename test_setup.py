@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup validation for Academic Paper MCP v3.2
+Setup validation for Academic Paper MCP v3.3
 """
 
 import sys
@@ -39,7 +39,9 @@ def test_vector_store():
         config = get_config()
         store = VectorStore(
             persist_directory=config.chroma_persist_dir,
-            embedding_model=config.embedding_model
+            embedding_model=config.embedding_model,
+            embedding_backend=config.embedding_backend,
+            ollama_host=config.ollama_host
         )
         count = store.count()
         
@@ -85,14 +87,28 @@ def test_pdf_processor():
 def test_embedding_model():
     """Test embedding model loading."""
     try:
-        from sentence_transformers import SentenceTransformer
         from src.config import get_config
-        
+
         config = get_config()
-        model = SentenceTransformer(config.embedding_model)
-        dim = model.get_sentence_embedding_dimension()
-        
-        print(f"Testing embedding model... OK (dim={dim})")
+
+        if config.embedding_backend == "ollama":
+            import ollama
+            response = ollama.embed(
+                model=config.embedding_model,
+                input="test embedding"
+            )
+            if hasattr(response, 'embeddings'):
+                dim = len(response.embeddings[0])
+            elif isinstance(response, dict) and 'embeddings' in response:
+                dim = len(response['embeddings'][0])
+            else:
+                raise ValueError(f"Unexpected Ollama response format: {type(response)}")
+        else:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(config.embedding_model)
+            dim = model.get_sentence_embedding_dimension()
+
+        print(f"Testing embedding model... OK (dim={dim}, backend={config.embedding_backend})")
         return True
     except Exception as e:
         print(f"Testing embedding model... FAILED: {e}")
@@ -127,7 +143,7 @@ def test_zotero():
 
 
 def main():
-    print("=== Academic Paper MCP v3.2 - Setup Validation ===")
+    print("=== Academic Paper MCP v3.3 - Setup Validation ===")
     
     tests = [
         test_database,

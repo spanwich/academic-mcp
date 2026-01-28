@@ -56,7 +56,7 @@
 │  (Read Only)    │         │                 │         │   Local LLM     │
 │                 │         │ • papers        │         │                 │
 │ • zotero.sqlite │         │ • sections      │         │ • qwen2.5:3b    │
-│ • better-bibtex │         │ • chunks        │         │ • bge-large     │
+│ • better-bibtex │         │ • chunks        │         │ • nomic-embed   │
 │ • storage/      │         │ • domains       │         │                 │
 └─────────────────┘         │ • ChromaDB      │         └─────────────────┘
                             └─────────────────┘
@@ -416,7 +416,7 @@ PDF File
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │ STEP 7: Embed & Index (Unchanged)                                               │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│   BGE embeddings → ChromaDB                                                      │
+│   Ollama embeddings → ChromaDB                                                      │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -866,7 +866,7 @@ ACADEMIC_CHROMA_PERSIST_DIR=./data/chroma
 
 # Models
 ACADEMIC_LLM_MODEL=qwen2.5:3b
-ACADEMIC_EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
+ACADEMIC_EMBEDDING_MODEL=nomic-embed-text
 ACADEMIC_OLLAMA_HOST=http://localhost:11434
 
 # v3.3: Domain classification settings

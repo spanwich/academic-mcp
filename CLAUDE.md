@@ -86,7 +86,7 @@ ACADEMIC_ZOTERO_PATH=~/Zotero
 ACADEMIC_DATABASE_URL=sqlite:///data/papers.db
 ACADEMIC_CHROMA_PERSIST_DIR=./data/chroma
 ACADEMIC_LLM_MODEL=qwen2.5:3b
-ACADEMIC_EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
+ACADEMIC_EMBEDDING_MODEL=nomic-embed-text
 ACADEMIC_OLLAMA_HOST=http://localhost:11434
 ```
 
@@ -95,7 +95,7 @@ ACADEMIC_OLLAMA_HOST=http://localhost:11434
 - **MCP**: mcp>=1.0.0
 - **Database**: SQLAlchemy 2.0+, ChromaDB
 - **PDF**: PyMuPDF
-- **LLM**: Ollama (local), sentence-transformers for embeddings
+- **LLM**: Ollama (local), Ollama for embeddings
 - **Python**: 3.10+
 
 ## Claude Code Integration

@@ -274,19 +274,19 @@ Edit `.env`:
 ACADEMIC_LLM_MODEL=qwen2.5:3b
 
 # Ollama host
-OLLAMA_HOST=http://localhost:11434
+ACADEMIC_OLLAMA_HOST=http://localhost:11434
 
 # Embedding model for semantic search
-EMBEDDING_MODEL=BAAI/bge-base-en-v1.5
+ACADEMIC_EMBEDDING_MODEL=nomic-embed-text
 ```
 
 ## Hardware Requirements
 
 | Config | LLM | Embeddings | Total VRAM |
 |--------|-----|------------|------------|
-| Minimal | qwen2.5:3b | bge-base | ~3.5GB |
-| **Recommended** | qwen2.5:3b | bge-large | ~5.5GB |
-| High Quality | qwen2.5:7b | bge-base | ~6GB |
+| Minimal | qwen2.5:3b | nomic-embed-text | ~3GB |
+| **Recommended** | qwen2.5:3b | nomic-embed-text | ~3GB |
+| High Quality | qwen2.5:7b | nomic-embed-text | ~5.5GB |
 
 ## Directory Structure
 
@@ -316,4 +316,4 @@ For consistent citation keys:
 
 ## License
 
-MIT
+GPL-3.0-or-later

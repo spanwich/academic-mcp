@@ -82,6 +82,34 @@ class VectorStore:
         # Lazy load embedding model (for sentence-transformers backend)
         self._st_model = None
 
+        # Validate embedding dimensions match stored data
+        self._validate_dimensions()
+
+    def _validate_dimensions(self):
+        """Check that configured embedding model dimensions match stored embeddings."""
+        # Generate a test embedding to get current model's dimension
+        try:
+            test_embedding = self._get_embedding("dimension test")
+        except Exception:
+            # Can't reach embedding backend; skip validation
+            return
+
+        current_dim = len(test_embedding)
+
+        # Check each non-empty collection
+        for name, col in [("paper_chunks", self.collection), ("domain_embeddings", self.domain_collection)]:
+            if col.count() == 0:
+                continue
+            stored = col.peek(limit=1)
+            if stored and stored.get("embeddings") and stored["embeddings"]:
+                stored_dim = len(stored["embeddings"][0])
+                if stored_dim != current_dim:
+                    raise RuntimeError(
+                        f"Embedding dimension mismatch in '{name}' collection: "
+                        f"stored={stored_dim}, current model '{self.embedding_model_name}'={current_dim}. "
+                        f"Run 'python reindex_all.py' to re-embed all data with the current model."
+                    )
+
     def _get_embedding(self, text: str) -> list[float]:
         """
         Get embedding for text using configured backend.

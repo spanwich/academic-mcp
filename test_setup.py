@@ -62,7 +62,12 @@ def test_ollama():
         client = ollama.Client(host=config.ollama_host)
         models = client.list()
         
-        qwen_found = any('qwen' in m['name'].lower() for m in models.get('models', []))
+        # Handle both old dict and new object API
+        if hasattr(models, 'models'):
+            model_list = models.models
+        else:
+            model_list = models.get('models', [])
+        qwen_found = any('qwen' in (getattr(m, 'model', '') or getattr(m, 'name', '') or str(m)).lower() for m in model_list)
         
         print(f"Testing Ollama... OK ({'qwen model found' if qwen_found else 'no qwen model'})")
         return True
@@ -125,7 +130,7 @@ def test_zotero():
         reader = ZoteroReader(config.zotero_path)
         stats = reader.get_stats()
         
-        bbt = "✓" if stats.get("has_bbt") else "✗"
+        bbt = "✓" if stats.get("better_bibtex_installed") else "✗"
         print(f"Testing Zotero access... OK ({stats['total_items']} items, BBT: {bbt})")
         return True
     except FileNotFoundError:

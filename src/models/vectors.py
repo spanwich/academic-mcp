@@ -101,7 +101,7 @@ class VectorStore:
             if col.count() == 0:
                 continue
             stored = col.peek(limit=1)
-            if stored and stored.get("embeddings") and stored["embeddings"]:
+            if stored and stored.get("embeddings") is not None and len(stored["embeddings"]) > 0:
                 stored_dim = len(stored["embeddings"][0])
                 if stored_dim != current_dim:
                     raise RuntimeError(

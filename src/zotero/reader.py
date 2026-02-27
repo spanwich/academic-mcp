@@ -55,7 +55,7 @@ class ZoteroReader:
             raise FileNotFoundError("Could not find Zotero data directory")
         
         self.zotero_db_path = self.zotero_path / "zotero.sqlite"
-        self.bbt_db_path = self.zotero_path / "better-bibtex.sqlite"
+        self.bbt_db_path = self._find_bbt_db()
         self.storage_path = self.zotero_path / "storage"
         
         if not self.zotero_db_path.exists():
@@ -64,6 +64,20 @@ class ZoteroReader:
         # Load actual item type IDs from database
         self.valid_item_types = self._load_item_types()
     
+    def _find_bbt_db(self) -> Path:
+        """Find Better BibTeX database file.
+
+        BBT renamed its database from 'better-bibtex.sqlite' to
+        'better-bibtex.migrated' in Zotero 7+. Check .migrated first
+        since it's the current format and authoritative if both exist.
+        """
+        for name in ("better-bibtex.migrated", "better-bibtex.sqlite"):
+            path = self.zotero_path / name
+            if path.exists():
+                return path
+        # Return default path (will be checked with .exists() later)
+        return self.zotero_path / "better-bibtex.sqlite"
+
     def _detect_zotero_path(self) -> Optional[Path]:
         """Auto-detect Zotero data directory."""
         candidates = [

@@ -192,25 +192,53 @@ class ZoteroReader:
         finally:
             tmp_path.unlink(missing_ok=True)
     
+    def _get_extra_citation_keys(self) -> dict[int, str]:
+        """Get citation keys from Zotero's extra field (BBT fallback).
+
+        In Zotero 7+, BBT may store citation keys in the item's ``extra``
+        field as ``Citation Key: <key>`` instead of (or in addition to) its
+        own ``citationkey`` table.  This method parses those entries.
+        """
+        import re
+        keys = {}
+        with self._get_zotero_db() as conn:
+            cursor = conn.execute("""
+                SELECT i.itemID, idv.value
+                FROM items i
+                JOIN itemData id ON i.itemID = id.itemID
+                JOIN fields f ON id.fieldID = f.fieldID
+                JOIN itemDataValues idv ON id.valueID = idv.valueID
+                WHERE f.fieldName = 'extra'
+                AND i.itemTypeID IN ({types})
+                AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
+            """.format(types=",".join(str(t) for t in self.valid_item_types.keys())))
+            for row in cursor:
+                match = re.search(r'^Citation Key:\s*(.+)$', row["value"], re.MULTILINE)
+                if match:
+                    keys[row["itemID"]] = match.group(1).strip()
+        return keys
+
     def get_citation_keys(self) -> dict[int, str]:
         """
-        Get all citation keys from Better BibTeX.
-        
+        Get all citation keys from Better BibTeX and Zotero's extra field.
+
+        BBT keys take precedence over extra-field keys.
+
         Returns:
             Dict mapping itemID to citationKey
         """
-        keys = {}
-        
+        # Start with extra-field keys (lower priority)
+        keys = self._get_extra_citation_keys()
+
+        # BBT keys override (higher priority)
         with self._get_bbt_db() as conn:
-            if conn is None:
-                return keys
-            
-            cursor = conn.execute(
-                "SELECT itemID, citationKey FROM citationkey"
-            )
-            for row in cursor:
-                keys[row["itemID"]] = row["citationKey"]
-        
+            if conn is not None:
+                cursor = conn.execute(
+                    "SELECT itemID, citationKey FROM citationkey"
+                )
+                for row in cursor:
+                    keys[row["itemID"]] = row["citationKey"]
+
         return keys
     
     def get_collections(self) -> list[ZoteroCollection]:
@@ -356,23 +384,31 @@ class ZoteroReader:
             )
     
     def get_item_by_citation_key(self, citation_key: str) -> Optional[ZoteroItem]:
-        """Get item by Better BibTeX citation key."""
+        """Get item by citation key (BBT table or Zotero extra field)."""
+        # Try BBT table first
         with self._get_bbt_db() as bbt_conn:
-            if bbt_conn is None:
-                return None
-            
-            cursor = bbt_conn.execute(
-                "SELECT itemID, itemKey FROM citationkey WHERE citationKey = ?",
-                (citation_key,)
-            )
-            row = cursor.fetchone()
-            
-            if not row:
-                return None
-            
-            item_key = row["itemKey"]
-        
-        return self.get_item_by_key(item_key)
+            if bbt_conn is not None:
+                cursor = bbt_conn.execute(
+                    "SELECT itemID, itemKey FROM citationkey WHERE citationKey = ?",
+                    (citation_key,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    return self.get_item_by_key(row["itemKey"])
+
+        # Fall back to extra-field keys
+        all_keys = self._get_extra_citation_keys()
+        for item_id, key in all_keys.items():
+            if key == citation_key:
+                # Look up the item key from itemID
+                with self._get_zotero_db() as conn:
+                    cursor = conn.execute(
+                        "SELECT key FROM items WHERE itemID = ?", (item_id,)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        return self.get_item_by_key(row["key"])
+        return None
     
     def _build_item(
         self,

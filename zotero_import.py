@@ -360,6 +360,86 @@ def cmd_rekey(sync: ZoteroSync, old_key: str, new_key: str):
         print(f"\n  {RED}✗ Rekey failed: {result.message}{NC}")
 
 
+def cmd_debug_keys(reader: ZoteroReader):
+    """Show citation key coverage by source for diagnostics."""
+    print_header("Citation Key Debug Report")
+
+    # Gather keys from each source
+    native_keys = reader._get_native_citation_keys()
+    extra_keys = reader._get_extra_citation_keys()
+
+    bbt_keys: dict[int, str] = {}
+    try:
+        with reader._get_bbt_db() as conn:
+            if conn is not None:
+                cursor = conn.execute("SELECT itemID, citationKey FROM citationkey")
+                for row in cursor:
+                    bbt_keys[row["itemID"]] = row["citationKey"]
+    except Exception:
+        pass
+
+    # Get all valid items
+    with reader._get_zotero_db() as conn:
+        cursor = conn.execute("""
+            SELECT itemID FROM items
+            WHERE itemTypeID IN ({types})
+            AND itemID NOT IN (SELECT itemID FROM deletedItems)
+        """.format(types=",".join(str(t) for t in reader.valid_item_types.keys())))
+        all_item_ids = {row["itemID"] for row in cursor}
+
+    total = len(all_item_ids)
+
+    # Resolved keys (same priority as get_citation_keys)
+    resolved = {}
+    resolved.update(extra_keys)
+    resolved.update(bbt_keys)
+    resolved.update(native_keys)
+
+    # Filter to valid items only
+    native_valid = {k for k in native_keys if k in all_item_ids}
+    bbt_valid = {k for k in bbt_keys if k in all_item_ids}
+    extra_valid = {k for k in extra_keys if k in all_item_ids}
+    resolved_valid = {k for k in resolved if k in all_item_ids}
+    missing = all_item_ids - resolved_valid
+
+    print(f"\n  Total items:          {total}")
+    print(f"  With resolved key:    {len(resolved_valid)}")
+    print(f"  Missing key:          {len(missing)}")
+    print(f"\n  Sources:")
+    print(f"    Native (Zotero 7):  {len(native_valid)}")
+    print(f"    BBT table:          {len(bbt_valid)}")
+    print(f"    Extra field:        {len(extra_valid)}")
+
+    # Show conflicts between native and BBT
+    conflicts = []
+    for item_id in native_valid & bbt_valid:
+        if native_keys[item_id] != bbt_keys[item_id]:
+            conflicts.append((item_id, native_keys[item_id], bbt_keys[item_id]))
+
+    if conflicts:
+        print(f"\n  {YELLOW}Native vs BBT conflicts: {len(conflicts)}{NC}")
+        print(f"  (Native wins in all cases)")
+        for item_id, native_key, bbt_key in conflicts[:10]:
+            print(f"    itemID {item_id}: native={native_key}  bbt={bbt_key}")
+        if len(conflicts) > 10:
+            print(f"    ... and {len(conflicts) - 10} more")
+
+    # Show items missing keys
+    if missing:
+        print(f"\n  {RED}Items without citation key:{NC}")
+        with reader._get_zotero_db() as conn:
+            for item_id in sorted(missing):
+                cursor = conn.execute("""
+                    SELECT idv.value FROM itemData id
+                    JOIN fields f ON id.fieldID = f.fieldID
+                    JOIN itemDataValues idv ON id.valueID = idv.valueID
+                    WHERE id.itemID = ? AND f.fieldName = 'title'
+                """, (item_id,))
+                row = cursor.fetchone()
+                title = row["value"][:55] + "..." if row and len(row["value"]) > 55 else (row["value"] if row else "(no title)")
+                print(f"    itemID {item_id}: {title}")
+
+
 def cmd_import_all(sync: ZoteroSync, reader: ZoteroReader, force: bool):
     """Import all papers."""
     items = reader.get_items()
@@ -417,6 +497,7 @@ def main():
     parser.add_argument("--cleanup", action="store_true", help="Find and remove papers deleted from Zotero (dry-run by default)")
     parser.add_argument("--sync-metadata", action="store_true", help="Update metadata changed in Zotero (dry-run by default)")
     parser.add_argument("--rekey", nargs=2, metavar=("OLD_KEY", "NEW_KEY"), help="Re-import a paper whose citation key changed")
+    parser.add_argument("--debug-keys", action="store_true", help="Show citation key coverage by source (diagnostics)")
 
     # Options
     parser.add_argument("--force", "-f", action="store_true", help="Force reprocess existing papers")
@@ -460,6 +541,10 @@ def main():
     if args.list_items is not None:
         collection = args.list_items if args.list_items else None
         cmd_list_items(reader, collection, args.limit)
+        return
+
+    if args.debug_keys:
+        cmd_debug_keys(reader)
         return
     
     # Commands that need Database + VectorStore only (no Ollama/LLM)

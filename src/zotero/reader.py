@@ -192,6 +192,39 @@ class ZoteroReader:
         finally:
             tmp_path.unlink(missing_ok=True)
     
+    def _get_native_citation_keys(self) -> dict[int, str]:
+        """Get citation keys from Zotero 7's native citationKey field.
+
+        Zotero 7 added a built-in ``citationKey`` field (fieldID typically 64)
+        stored in the standard ``itemData`` table.  This is the most
+        authoritative source when present.
+
+        Returns empty dict on pre-Zotero 7 databases that lack this field.
+        """
+        keys: dict[int, str] = {}
+        with self._get_zotero_db() as conn:
+            # Check if the citationKey field exists in this Zotero version
+            cursor = conn.execute(
+                "SELECT fieldID FROM fields WHERE fieldName = 'citationKey'"
+            )
+            row = cursor.fetchone()
+            if not row:
+                return keys  # Pre-Zotero 7 — field doesn't exist
+
+            field_id = row["fieldID"]
+            cursor = conn.execute("""
+                SELECT id.itemID, idv.value
+                FROM itemData id
+                JOIN itemDataValues idv ON id.valueID = idv.valueID
+                WHERE id.fieldID = ?
+                AND id.itemID NOT IN (SELECT itemID FROM deletedItems)
+            """, (field_id,))
+            for row in cursor:
+                value = row["value"].strip()
+                if value:
+                    keys[row["itemID"]] = value
+        return keys
+
     def _get_extra_citation_keys(self) -> dict[int, str]:
         """Get citation keys from Zotero's extra field (BBT fallback).
 
@@ -235,24 +268,34 @@ class ZoteroReader:
 
     def get_citation_keys(self) -> dict[int, str]:
         """
-        Get all citation keys from Better BibTeX and Zotero's extra field.
+        Get all citation keys from all sources.
 
-        BBT keys take precedence over extra-field keys.
+        Resolution order (later overrides earlier):
+        1. Extra field patterns (lowest priority)
+        2. BBT ``citationkey`` table
+        3. Zotero 7 native ``citationKey`` field (highest priority)
 
         Returns:
             Dict mapping itemID to citationKey
         """
-        # Start with extra-field keys (lower priority)
+        # Start with extra-field keys (lowest priority)
         keys = self._get_extra_citation_keys()
 
-        # BBT keys override (higher priority)
-        with self._get_bbt_db() as conn:
-            if conn is not None:
-                cursor = conn.execute(
-                    "SELECT itemID, citationKey FROM citationkey"
-                )
-                for row in cursor:
-                    keys[row["itemID"]] = row["citationKey"]
+        # BBT keys override extra-field keys
+        try:
+            with self._get_bbt_db() as conn:
+                if conn is not None:
+                    cursor = conn.execute(
+                        "SELECT itemID, citationKey FROM citationkey"
+                    )
+                    for row in cursor:
+                        keys[row["itemID"]] = row["citationKey"]
+        except Exception:
+            pass  # BBT database may be corrupt or have schema changes
+
+        # Native Zotero 7 citationKey field overrides everything
+        native_keys = self._get_native_citation_keys()
+        keys.update(native_keys)
 
         return keys
     
@@ -399,23 +442,41 @@ class ZoteroReader:
             )
     
     def get_item_by_citation_key(self, citation_key: str) -> Optional[ZoteroItem]:
-        """Get item by citation key (BBT table or Zotero extra field)."""
-        # Try BBT table first
-        with self._get_bbt_db() as bbt_conn:
-            if bbt_conn is not None:
-                cursor = bbt_conn.execute(
-                    "SELECT itemID, itemKey FROM citationkey WHERE citationKey = ?",
-                    (citation_key,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    return self.get_item_by_key(row["itemKey"])
+        """Get item by citation key.
+
+        Tries sources in priority order: native Zotero 7 field, BBT table,
+        then extra field.
+        """
+        # Try native Zotero 7 citationKey field first (highest priority)
+        native_keys = self._get_native_citation_keys()
+        for item_id, key in native_keys.items():
+            if key == citation_key:
+                with self._get_zotero_db() as conn:
+                    cursor = conn.execute(
+                        "SELECT key FROM items WHERE itemID = ?", (item_id,)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        return self.get_item_by_key(row["key"])
+
+        # Try BBT table
+        try:
+            with self._get_bbt_db() as bbt_conn:
+                if bbt_conn is not None:
+                    cursor = bbt_conn.execute(
+                        "SELECT itemID, itemKey FROM citationkey WHERE citationKey = ?",
+                        (citation_key,)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        return self.get_item_by_key(row["itemKey"])
+        except Exception:
+            pass  # BBT database may be corrupt or have schema changes
 
         # Fall back to extra-field keys
         all_keys = self._get_extra_citation_keys()
         for item_id, key in all_keys.items():
             if key == citation_key:
-                # Look up the item key from itemID
                 with self._get_zotero_db() as conn:
                     cursor = conn.execute(
                         "SELECT key FROM items WHERE itemID = ?", (item_id,)

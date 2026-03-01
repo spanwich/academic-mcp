@@ -218,6 +218,21 @@ class ZoteroReader:
                     keys[row["itemID"]] = match.group(1).strip()
         return keys
 
+    def get_all_item_keys(self) -> set[str]:
+        """
+        Get all non-deleted Zotero item keys (lightweight).
+
+        Returns:
+            Set of Zotero item keys (e.g., {"HTJHSCCZ", "AB12CD34", ...})
+        """
+        with self._get_zotero_db() as conn:
+            cursor = conn.execute("""
+                SELECT key FROM items
+                WHERE itemTypeID IN ({types})
+                AND itemID NOT IN (SELECT itemID FROM deletedItems)
+            """.format(types=",".join(str(t) for t in self.valid_item_types.keys())))
+            return {row["key"] for row in cursor}
+
     def get_citation_keys(self) -> dict[int, str]:
         """
         Get all citation keys from Better BibTeX and Zotero's extra field.

@@ -37,6 +37,36 @@ class ImportResult:
     section_count: Optional[int] = None
 
 
+@dataclass
+class CleanupResult:
+    """Result of cleanup_removed() operation."""
+    orphaned: list[dict]  # Papers found in MCP but not in Zotero
+    removed: list[str]  # paper_ids actually removed
+    domains_updated: list[str]  # Domains with decremented paper_count
+    domains_removed: list[str]  # Domains deleted (paper_count reached 0)
+    errors: list[str]  # Any errors encountered
+    skipped_no_key: int  # Papers skipped because zotero_key is None
+
+
+@dataclass
+class MetadataDiff:
+    """A single field difference for a paper."""
+    field: str
+    old_value: str
+    new_value: str
+
+
+@dataclass
+class MetadataSyncResult:
+    """Result of metadata comparison for a single paper."""
+    paper_id: str
+    title: str
+    diffs: list[MetadataDiff]
+    rekey_needed: bool = False  # Citation key changed
+    new_citation_key: Optional[str] = None  # New key if rekey needed
+    applied: bool = False  # Whether changes were applied
+
+
 class ZoteroSync:
     """
     Sync papers from Zotero into MCP database.
@@ -58,10 +88,10 @@ class ZoteroSync:
         reader: ZoteroReader,
         database: Database,
         vector_store: VectorStore,
-        section_detector: SectionDetector,
-        extractor: SectionExtractor,
-        pdf_processor: PDFProcessor,
-        chunker: PageChunker,
+        section_detector: Optional[SectionDetector] = None,
+        extractor: Optional[SectionExtractor] = None,
+        pdf_processor: Optional[PDFProcessor] = None,
+        chunker: Optional[PageChunker] = None,
         keyword_extractor: Optional[KeywordExtractor] = None,
         domain_classifier: Optional[DomainClassifier] = None
     ):
@@ -75,6 +105,23 @@ class ZoteroSync:
         self.keyword_extractor = keyword_extractor
         self.domain_classifier = domain_classifier
     
+    def _require_processing_infra(self):
+        """Raise if processing components are not available."""
+        missing = []
+        if self.section_detector is None:
+            missing.append("section_detector")
+        if self.extractor is None:
+            missing.append("extractor")
+        if self.pdf_processor is None:
+            missing.append("pdf_processor")
+        if self.chunker is None:
+            missing.append("chunker")
+        if missing:
+            raise RuntimeError(
+                f"Import requires processing infrastructure: {', '.join(missing)}. "
+                "Ensure Ollama is running and all components are initialised."
+            )
+
     def import_item(
         self,
         zotero_item: ZoteroItem,
@@ -82,16 +129,17 @@ class ZoteroSync:
     ) -> ImportResult:
         """
         Import a single Zotero item.
-        
+
         Args:
             zotero_item: Item from Zotero reader
             force_reprocess: Reprocess even if exists
-            
+
         Returns:
             ImportResult with status
         """
+        self._require_processing_infra()
         start_time = time.time()
-        
+
         paper_id = zotero_item.citation_key
         if not paper_id:
             return ImportResult(
@@ -151,7 +199,7 @@ class ZoteroSync:
             
             # Delete existing if force reprocess
             if existing_by_id and force_reprocess:
-                session.delete(existing_by_id)
+                self._cleanup_paper_data(session, existing_by_id)
                 session.flush()
                 # Also delete from vector store
                 self.vectors.delete_paper(paper_id)
@@ -469,17 +517,303 @@ class ZoteroSync:
         """Import all papers from Zotero."""
         items = self.reader.get_items()
         results = []
-        
+
         for i, item in enumerate(items):
             print(f"  [{i+1}/{len(items)}] {item.citation_key or item.title[:50]}")
             result = self.import_item(item, force_reprocess)
             results.append(result)
-            
+
             if result.status == "imported":
                 print(f"    ✓ {result.page_count} pages, {result.section_count} sections ({result.time_seconds:.1f}s)")
             elif result.status == "failed":
                 print(f"    ✗ {result.message}")
             else:
                 print(f"    - {result.status}: {result.message}")
-        
+
         return results
+
+    # ==================== Cleanup & Sync ====================
+
+    def _cleanup_paper_data(self, session, paper: Paper):
+        """
+        Clean up domain accounting and delete paper record.
+
+        Decrements Domain.paper_count for the paper's domain. If the domain
+        reaches paper_count 0, removes the Domain record and its ChromaDB
+        embedding.
+
+        The Paper record is deleted via session.delete() which cascades to
+        sections, chunks, and extractions.
+
+        Args:
+            session: Active SQLAlchemy session
+            paper: Paper ORM object to remove
+        """
+        if paper.domain:
+            domain = session.query(Domain).filter(
+                Domain.name == paper.domain
+            ).first()
+            if domain:
+                domain.paper_count = max(0, domain.paper_count - 1)
+                if domain.paper_count == 0:
+                    self.vectors.delete_domain(domain.name)
+                    session.delete(domain)
+
+        session.delete(paper)
+
+    def remove_paper(self, paper_id: str) -> dict:
+        """
+        Remove a paper from MCP database and vector store.
+
+        Args:
+            paper_id: Citation key of the paper to remove
+
+        Returns:
+            Dict with keys: paper_id, status, domain_updated, domain_removed
+        """
+        result = {
+            "paper_id": paper_id,
+            "status": "not_found",
+            "domain_updated": None,
+            "domain_removed": False,
+        }
+
+        # Remove vector store chunks first
+        self.vectors.delete_paper(paper_id)
+
+        with self.db.get_session() as session:
+            paper = session.query(Paper).filter(
+                Paper.paper_id == paper_id
+            ).first()
+            if not paper:
+                return result
+
+            domain_name = paper.domain
+            result["domain_updated"] = domain_name
+
+            # Check if domain will be removed
+            if domain_name:
+                domain = session.query(Domain).filter(
+                    Domain.name == domain_name
+                ).first()
+                if domain and domain.paper_count <= 1:
+                    result["domain_removed"] = True
+
+            self._cleanup_paper_data(session, paper)
+            session.commit()
+            result["status"] = "removed"
+
+        return result
+
+    def find_orphaned_papers(self) -> tuple[list[dict], int]:
+        """
+        Find MCP papers whose zotero_key no longer exists in Zotero.
+
+        Returns:
+            Tuple of (list of orphan dicts, count of papers with no zotero_key)
+            Each orphan dict: {paper_id, title, zotero_key, domain}
+        """
+        zotero_keys = self.reader.get_all_item_keys()
+        orphans = []
+        skipped_no_key = 0
+
+        with self.db.get_session() as session:
+            papers = session.query(Paper).all()
+            for paper in papers:
+                if not paper.zotero_key:
+                    skipped_no_key += 1
+                    continue
+                if paper.zotero_key not in zotero_keys:
+                    orphans.append({
+                        "paper_id": paper.paper_id,
+                        "title": paper.title or "(no title)",
+                        "zotero_key": paper.zotero_key,
+                        "domain": paper.domain,
+                    })
+
+        return orphans, skipped_no_key
+
+    def cleanup_removed(self, dry_run: bool = True) -> CleanupResult:
+        """
+        Find and optionally remove papers deleted from Zotero.
+
+        Args:
+            dry_run: If True, only report orphans without removing them
+
+        Returns:
+            CleanupResult with details of what was (or would be) removed
+        """
+        orphans, skipped_no_key = self.find_orphaned_papers()
+
+        result = CleanupResult(
+            orphaned=orphans,
+            removed=[],
+            domains_updated=[],
+            domains_removed=[],
+            errors=[],
+            skipped_no_key=skipped_no_key,
+        )
+
+        if dry_run or not orphans:
+            return result
+
+        for orphan in orphans:
+            try:
+                removal = self.remove_paper(orphan["paper_id"])
+                if removal["status"] == "removed":
+                    result.removed.append(orphan["paper_id"])
+                    if removal["domain_updated"]:
+                        result.domains_updated.append(removal["domain_updated"])
+                    if removal["domain_removed"]:
+                        result.domains_removed.append(removal["domain_updated"])
+                else:
+                    result.errors.append(
+                        f"{orphan['paper_id']}: {removal['status']}"
+                    )
+            except Exception as e:
+                result.errors.append(f"{orphan['paper_id']}: {e}")
+
+        return result
+
+    def sync_metadata(self, dry_run: bool = True) -> list[MetadataSyncResult]:
+        """
+        Compare MCP paper metadata against live Zotero library and update.
+
+        Compares: title, authors, abstract, year, venue, doi,
+        publication_date, collections. Detects citation key renames.
+
+        Args:
+            dry_run: If True, only report diffs without applying changes
+
+        Returns:
+            List of MetadataSyncResult for papers with differences
+        """
+        # Load all Zotero items indexed by item_key
+        zotero_items = self.reader.get_items()
+        zotero_by_key: dict[str, ZoteroItem] = {}
+        for item in zotero_items:
+            zotero_by_key[item.item_key] = item
+
+        results: list[MetadataSyncResult] = []
+
+        with self.db.get_session() as session:
+            papers = session.query(Paper).all()
+
+            for paper in papers:
+                if not paper.zotero_key:
+                    continue
+
+                zotero_item = zotero_by_key.get(paper.zotero_key)
+                if not zotero_item:
+                    # Paper not in Zotero — handled by cleanup, skip here
+                    continue
+
+                diffs: list[MetadataDiff] = []
+
+                # Compare fields
+                field_map = [
+                    ("title", paper.title, zotero_item.title),
+                    ("authors", paper.authors, zotero_item.authors),
+                    ("abstract", paper.abstract, zotero_item.abstract),
+                    ("year", str(paper.year) if paper.year else None,
+                     zotero_item.year),
+                    ("venue", paper.journal_or_venue,
+                     zotero_item.publication_title),
+                    ("doi", paper.doi, zotero_item.doi),
+                    ("publication_date", paper.publication_date,
+                     zotero_item.date),
+                    ("collections", paper.zotero_collections,
+                     zotero_item.collections),
+                ]
+
+                for field_name, old_val, new_val in field_map:
+                    # Normalise for comparison
+                    old_str = str(old_val) if old_val else ""
+                    new_str = str(new_val) if new_val else ""
+                    if old_str != new_str:
+                        diffs.append(MetadataDiff(
+                            field=field_name,
+                            old_value=old_str,
+                            new_value=new_str,
+                        ))
+
+                # Detect citation key rename
+                rekey_needed = False
+                new_citation_key = None
+                if (zotero_item.citation_key
+                        and zotero_item.citation_key != paper.paper_id):
+                    rekey_needed = True
+                    new_citation_key = zotero_item.citation_key
+
+                if not diffs and not rekey_needed:
+                    continue
+
+                sync_result = MetadataSyncResult(
+                    paper_id=paper.paper_id,
+                    title=paper.title or "(no title)",
+                    diffs=diffs,
+                    rekey_needed=rekey_needed,
+                    new_citation_key=new_citation_key,
+                )
+
+                # Apply changes if not dry run (and no rekey needed)
+                if not dry_run and diffs and not rekey_needed:
+                    for diff in diffs:
+                        if diff.field == "title":
+                            paper.title = zotero_item.title
+                        elif diff.field == "authors":
+                            paper.authors = zotero_item.authors
+                        elif diff.field == "abstract":
+                            paper.abstract = zotero_item.abstract
+                        elif diff.field == "year":
+                            paper.year = (int(zotero_item.year)
+                                          if zotero_item.year else None)
+                        elif diff.field == "venue":
+                            paper.journal_or_venue = (
+                                zotero_item.publication_title)
+                        elif diff.field == "doi":
+                            paper.doi = zotero_item.doi
+                        elif diff.field == "publication_date":
+                            paper.publication_date = zotero_item.date
+                        elif diff.field == "collections":
+                            paper.zotero_collections = (
+                                zotero_item.collections)
+                    sync_result.applied = True
+
+                results.append(sync_result)
+
+            if not dry_run:
+                session.commit()
+
+        return results
+
+    def rekey_paper(self, old_paper_id: str, new_citation_key: str) -> ImportResult:
+        """
+        Re-import a paper whose citation key changed in Zotero.
+
+        Removes the old paper and re-imports from Zotero with the new key.
+        Requires full processing infrastructure (Ollama, LLM).
+
+        Args:
+            old_paper_id: Current paper_id in MCP database
+            new_citation_key: New citation key from Zotero/BBT
+
+        Returns:
+            ImportResult from the re-import
+        """
+        self._require_processing_infra()
+
+        # Look up the Zotero item by new citation key
+        zotero_item = self.reader.get_item_by_citation_key(new_citation_key)
+        if not zotero_item:
+            return ImportResult(
+                paper_id=old_paper_id,
+                status="failed",
+                message=f"Citation key '{new_citation_key}' not found in Zotero",
+            )
+
+        # Remove old paper
+        self.remove_paper(old_paper_id)
+
+        # Re-import with new key
+        return self.import_item(zotero_item, force_reprocess=True)

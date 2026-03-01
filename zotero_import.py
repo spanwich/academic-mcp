@@ -35,7 +35,7 @@ from src.processing.extractor import SectionExtractor
 from src.processing.keyword_extractor import KeywordExtractor
 from src.processing.domain_classifier import DomainClassifier
 from src.zotero.reader import ZoteroReader
-from src.zotero.sync import ZoteroSync
+from src.zotero.sync import ZoteroSync, CleanupResult, MetadataSyncResult
 
 
 # Colors for terminal output
@@ -257,6 +257,109 @@ def cmd_import_item(sync: ZoteroSync, reader: ZoteroReader, citation_key: str, f
         print(f"  Time: {result.time_seconds:.1f}s")
 
 
+def cmd_cleanup(sync: ZoteroSync, yes: bool):
+    """Find and remove papers deleted from Zotero."""
+    print_header("Cleanup: Detect Orphaned Papers")
+
+    result = sync.cleanup_removed(dry_run=not yes)
+
+    if result.skipped_no_key > 0:
+        print(f"\n  {YELLOW}Warning: {result.skipped_no_key} paper(s) have no zotero_key — skipped{NC}")
+
+    if not result.orphaned:
+        print(f"\n  {GREEN}No orphaned papers found. Database is in sync with Zotero.{NC}")
+        return
+
+    print(f"\n  Found {len(result.orphaned)} orphaned paper(s):\n")
+    for orphan in result.orphaned:
+        print(f"    • {orphan['paper_id']}")
+        print(f"      {orphan['title'][:60]}{'...' if len(orphan['title']) > 60 else ''}")
+        if orphan["domain"]:
+            print(f"      Domain: {orphan['domain']}")
+        print()
+
+    if not yes:
+        print(f"  {YELLOW}Dry run — no changes made.{NC}")
+        print(f"  Run with --yes to remove these papers.")
+        return
+
+    # Applied — show results
+    print_header("Cleanup Results")
+    print(f"  {GREEN}✓ Removed: {len(result.removed)}{NC}")
+    if result.domains_updated:
+        unique_domains = sorted(set(result.domains_updated))
+        print(f"  Domains updated: {len(unique_domains)}")
+        for d in unique_domains:
+            removed_tag = f" {RED}(removed){NC}" if d in result.domains_removed else ""
+            print(f"    • {d}{removed_tag}")
+    if result.errors:
+        print(f"\n  {RED}Errors:{NC}")
+        for err in result.errors:
+            print(f"    • {err}")
+
+
+def cmd_sync_metadata(sync: ZoteroSync, yes: bool):
+    """Show and optionally apply metadata differences from Zotero."""
+    print_header("Sync Metadata from Zotero")
+
+    results = sync.sync_metadata(dry_run=not yes)
+
+    if not results:
+        print(f"\n  {GREEN}All metadata is in sync with Zotero.{NC}")
+        return
+
+    # Separate rekey items from regular diffs
+    rekey_items = [r for r in results if r.rekey_needed]
+    diff_items = [r for r in results if r.diffs and not r.rekey_needed]
+
+    if diff_items:
+        print(f"\n  {len(diff_items)} paper(s) with metadata changes:\n")
+        for item in diff_items:
+            status = f"{GREEN}applied{NC}" if item.applied else "pending"
+            print(f"    • {item.paper_id} [{status}]")
+            for diff in item.diffs:
+                old_display = diff.old_value[:40] if diff.old_value else "(empty)"
+                new_display = diff.new_value[:40] if diff.new_value else "(empty)"
+                print(f"        {diff.field}: {old_display} → {new_display}")
+            print()
+
+    if rekey_items:
+        print(f"\n  {YELLOW}{len(rekey_items)} paper(s) with citation key changes:{NC}\n")
+        for item in rekey_items:
+            print(f"    • {item.paper_id} → {item.new_citation_key}")
+            print(f"      {item.title[:60]}{'...' if len(item.title) > 60 else ''}")
+            print(f"      Fix with: python zotero_import.py --rekey {item.paper_id} {item.new_citation_key}")
+            print()
+
+    if not yes:
+        if diff_items:
+            print(f"  {YELLOW}Dry run — no changes made.{NC}")
+            print(f"  Run with --yes to apply metadata updates.")
+    else:
+        applied_count = sum(1 for r in results if r.applied)
+        print(f"  {GREEN}✓ Updated: {applied_count} paper(s){NC}")
+
+
+def cmd_rekey(sync: ZoteroSync, old_key: str, new_key: str):
+    """Re-import a paper with a changed citation key."""
+    print_header(f"Rekey: {old_key} → {new_key}")
+
+    result = sync.rekey_paper(old_key, new_key)
+
+    if result.status == "imported":
+        print(f"\n  {GREEN}✓ Successfully rekeyed{NC}")
+        print(f"    Old key: {old_key} (removed)")
+        print(f"    New key: {new_key}")
+        if result.page_count:
+            print(f"    Pages: {result.page_count}")
+        if result.section_count:
+            print(f"    Sections: {result.section_count}")
+        if result.time_seconds:
+            print(f"    Time: {result.time_seconds:.1f}s")
+    else:
+        print(f"\n  {RED}✗ Rekey failed: {result.message}{NC}")
+
+
 def cmd_import_all(sync: ZoteroSync, reader: ZoteroReader, force: bool):
     """Import all papers."""
     items = reader.get_items()
@@ -311,9 +414,13 @@ def main():
     parser.add_argument("--collection", "-c", type=str, help="Import specific collection")
     parser.add_argument("--item", "-i", type=str, help="Import single item by citation key")
     parser.add_argument("--all", action="store_true", help="Import all papers")
-    
+    parser.add_argument("--cleanup", action="store_true", help="Find and remove papers deleted from Zotero (dry-run by default)")
+    parser.add_argument("--sync-metadata", action="store_true", help="Update metadata changed in Zotero (dry-run by default)")
+    parser.add_argument("--rekey", nargs=2, metavar=("OLD_KEY", "NEW_KEY"), help="Re-import a paper whose citation key changed")
+
     # Options
     parser.add_argument("--force", "-f", action="store_true", help="Force reprocess existing papers")
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation, apply changes (for --cleanup/--sync-metadata)")
     parser.add_argument("--zotero-path", type=Path, help="Path to Zotero data directory")
     parser.add_argument("--model", type=str, help="LLM model to use")
     parser.add_argument("--limit", type=int, default=20, help="Limit for --list-items")
@@ -355,23 +462,53 @@ def main():
         cmd_list_items(reader, collection, args.limit)
         return
     
+    # Commands that need Database + VectorStore only (no Ollama/LLM)
+    if args.cleanup or args.sync_metadata:
+        db = Database(config.database_url)
+        db.create_tables()
+        vectors = VectorStore(
+            persist_directory=config.chroma_persist_dir,
+            embedding_model=config.embedding_model,
+            embedding_backend=config.embedding_backend,
+            ollama_host=config.ollama_host
+        )
+        sync = ZoteroSync(
+            reader=reader,
+            database=db,
+            vector_store=vectors,
+        )
+
+        try:
+            if args.cleanup:
+                cmd_cleanup(sync, args.yes)
+            elif args.sync_metadata:
+                cmd_sync_metadata(sync, args.yes)
+        except RuntimeError as e:
+            print(f"\n{'='*60}")
+            print("  ERROR")
+            print(f"{'='*60}")
+            print(f"\n  {e}")
+            print(f"{'='*60}\n")
+            sys.exit(1)
+        return
+
     # Commands that need full sync infrastructure
-    if not any([args.collection, args.item, args.all]):
+    if not any([args.collection, args.item, args.all, args.rekey]):
         parser.print_help()
         return
-    
+
     # Initialize configuration
     model = args.model or config.llm_model
-    
+
     # Ensure Ollama is running and model is available
     ensure_ollama_ready(model, config.ollama_host)
-    
+
     print("Initializing components...")
-    
+
     # Initialize database
     db = Database(config.database_url)
     db.create_tables()
-    
+
     # Initialize vector store
     vectors = VectorStore(
         persist_directory=config.chroma_persist_dir,
@@ -379,17 +516,17 @@ def main():
         embedding_backend=config.embedding_backend,
         ollama_host=config.ollama_host
     )
-    
+
     # Initialize processing components
     print(f"Using LLM model: {model}")
-    
+
     pdf_processor = PDFProcessor()
     section_detector = SectionDetector(model=model, host=config.ollama_host)
     chunker = PageChunker()
     extractor = SectionExtractor(model=model, host=config.ollama_host)
     keyword_extractor = KeywordExtractor(model=model, host=config.ollama_host)
     domain_classifier = DomainClassifier(model=model, host=config.ollama_host)
-    
+
     # Initialize sync
     sync = ZoteroSync(
         reader=reader,
@@ -402,10 +539,12 @@ def main():
         keyword_extractor=keyword_extractor,
         domain_classifier=domain_classifier
     )
-    
+
     # Run command
     try:
-        if args.collection:
+        if args.rekey:
+            cmd_rekey(sync, args.rekey[0], args.rekey[1])
+        elif args.collection:
             cmd_import_collection(sync, reader, args.collection, args.force)
         elif args.item:
             cmd_import_item(sync, reader, args.item, args.force)

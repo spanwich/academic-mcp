@@ -368,7 +368,7 @@ def cmd_rekey_all(sync: ZoteroSync, yes: bool):
 
     for item in rekey_items:
         result = sync.rekey_paper_fast(item.paper_id, item.new_citation_key)
-        if result["status"] == "rekeyed":
+        if result["status"] in ("rekeyed", "merged"):
             successes.append(result)
             print(f"  {GREEN}✓{NC} {result['old_key']} → {result['new_key']} ({result['chunks_updated']} chunks)")
         else:

@@ -816,8 +816,10 @@ class ZoteroSync:
                 Paper.paper_id == new_citation_key
             ).first()
             if existing:
+                self.remove_paper(old_paper_id)
+                result["status"] = "merged"
                 result["message"] = (
-                    f"Paper '{new_citation_key}' already exists in database"
+                    f"Removed stale duplicate; '{new_citation_key}' already exists"
                 )
                 return result
 

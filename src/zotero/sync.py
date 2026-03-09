@@ -787,6 +787,95 @@ class ZoteroSync:
 
         return results
 
+    def rekey_paper_fast(self, old_paper_id: str, new_citation_key: str) -> dict:
+        """
+        Rename paper_id across all tables and ChromaDB without re-processing.
+
+        Unlike rekey_paper(), this does not require Ollama or PDF reprocessing.
+        It simply renames the primary key across all tables and updates ChromaDB
+        chunk metadata.
+
+        Args:
+            old_paper_id: Current paper_id in MCP database
+            new_citation_key: New citation key from Zotero/BBT
+
+        Returns:
+            Dict with keys: old_key, new_key, status, message, chunks_updated
+        """
+        result = {
+            "old_key": old_paper_id,
+            "new_key": new_citation_key,
+            "status": "failed",
+            "message": None,
+            "chunks_updated": 0,
+        }
+
+        # Validate new key doesn't already exist
+        with self.db.get_session() as session:
+            existing = session.query(Paper).filter(
+                Paper.paper_id == new_citation_key
+            ).first()
+            if existing:
+                result["message"] = (
+                    f"Paper '{new_citation_key}' already exists in database"
+                )
+                return result
+
+            # Verify old paper exists
+            old_paper = session.query(Paper).filter(
+                Paper.paper_id == old_paper_id
+            ).first()
+            if not old_paper:
+                result["message"] = (
+                    f"Paper '{old_paper_id}' not found in database"
+                )
+                return result
+
+        # Verify new citation key exists in Zotero
+        zotero_item = self.reader.get_item_by_citation_key(new_citation_key)
+        if not zotero_item:
+            result["message"] = (
+                f"Citation key '{new_citation_key}' not found in Zotero"
+            )
+            return result
+
+        # Update ChromaDB metadata (before DB, since this doesn't have transactions)
+        chunks_updated = self.vectors.rename_paper(old_paper_id, new_citation_key)
+        result["chunks_updated"] = chunks_updated
+
+        # Update all database tables via raw SQL to avoid ORM PK immutability
+        from sqlalchemy import text
+
+        with self.db.get_session() as session:
+            try:
+                session.execute(
+                    text("UPDATE extractions SET paper_id = :new WHERE paper_id = :old"),
+                    {"new": new_citation_key, "old": old_paper_id},
+                )
+                session.execute(
+                    text("UPDATE chunks SET paper_id = :new WHERE paper_id = :old"),
+                    {"new": new_citation_key, "old": old_paper_id},
+                )
+                session.execute(
+                    text("UPDATE sections SET paper_id = :new WHERE paper_id = :old"),
+                    {"new": new_citation_key, "old": old_paper_id},
+                )
+                session.execute(
+                    text("UPDATE papers SET paper_id = :new WHERE paper_id = :old"),
+                    {"new": new_citation_key, "old": old_paper_id},
+                )
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                # Attempt to revert ChromaDB rename
+                if chunks_updated > 0:
+                    self.vectors.rename_paper(new_citation_key, old_paper_id)
+                result["message"] = f"Database update failed: {e}"
+                return result
+
+        result["status"] = "rekeyed"
+        return result
+
     def rekey_paper(self, old_paper_id: str, new_citation_key: str) -> ImportResult:
         """
         Re-import a paper whose citation key changed in Zotero.

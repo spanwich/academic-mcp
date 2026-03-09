@@ -354,6 +354,38 @@ class VectorStore:
 
         return formatted
 
+    def rename_paper(self, old_paper_id: str, new_paper_id: str) -> int:
+        """
+        Rename paper_id in all chunk metadata without re-embedding.
+
+        Args:
+            old_paper_id: Current paper_id in chunk metadata
+            new_paper_id: New paper_id to set
+
+        Returns:
+            Number of chunks updated
+        """
+        results = self.collection.get(
+            where={"paper_id": old_paper_id},
+            include=["metadatas"]
+        )
+
+        if not results["ids"]:
+            return 0
+
+        updated_metadatas = []
+        for meta in results["metadatas"]:
+            new_meta = dict(meta)
+            new_meta["paper_id"] = new_paper_id
+            updated_metadatas.append(new_meta)
+
+        self.collection.update(
+            ids=results["ids"],
+            metadatas=updated_metadatas
+        )
+
+        return len(results["ids"])
+
     def delete_paper(self, paper_id: str):
         """Delete all chunks for a paper."""
         # Get chunk IDs for this paper

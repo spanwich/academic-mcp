@@ -340,6 +340,50 @@ def cmd_sync_metadata(sync: ZoteroSync, yes: bool):
         print(f"  {GREEN}✓ Updated: {applied_count} paper(s){NC}")
 
 
+def cmd_rekey_all(sync: ZoteroSync, yes: bool):
+    """Batch rekey all papers whose citation keys changed in Zotero."""
+    print_header("Batch Rekey: Detect Changed Citation Keys")
+
+    results = sync.sync_metadata(dry_run=True)
+    rekey_items = [r for r in results if r.rekey_needed]
+
+    if not rekey_items:
+        print(f"\n  {GREEN}No papers need rekeying. All citation keys match Zotero.{NC}")
+        return
+
+    print(f"\n  Found {len(rekey_items)} paper(s) to rekey:\n")
+    for item in rekey_items:
+        print(f"    • {item.paper_id} → {item.new_citation_key}")
+        print(f"      {item.title[:60]}{'...' if len(item.title) > 60 else ''}")
+        print()
+
+    if not yes:
+        print(f"  {YELLOW}Dry run — no changes made.{NC}")
+        print(f"  Run with --yes to apply all rekeys.")
+        return
+
+    # Apply rekeys
+    successes = []
+    failures = []
+
+    for item in rekey_items:
+        result = sync.rekey_paper_fast(item.paper_id, item.new_citation_key)
+        if result["status"] == "rekeyed":
+            successes.append(result)
+            print(f"  {GREEN}✓{NC} {result['old_key']} → {result['new_key']} ({result['chunks_updated']} chunks)")
+        else:
+            failures.append(result)
+            print(f"  {RED}✗{NC} {result['old_key']} → {result['new_key']}: {result['message']}")
+
+    # Summary
+    print_header("Rekey Summary")
+    print(f"  {GREEN}✓ Rekeyed:  {len(successes)}{NC}")
+    if failures:
+        print(f"  {RED}✗ Failed:   {len(failures)}{NC}")
+        for f in failures:
+            print(f"    • {f['old_key']}: {f['message']}")
+
+
 def cmd_rekey(sync: ZoteroSync, old_key: str, new_key: str):
     """Re-import a paper with a changed citation key."""
     print_header(f"Rekey: {old_key} → {new_key}")
@@ -497,6 +541,7 @@ def main():
     parser.add_argument("--cleanup", action="store_true", help="Find and remove papers deleted from Zotero (dry-run by default)")
     parser.add_argument("--sync-metadata", action="store_true", help="Update metadata changed in Zotero (dry-run by default)")
     parser.add_argument("--rekey", nargs=2, metavar=("OLD_KEY", "NEW_KEY"), help="Re-import a paper whose citation key changed")
+    parser.add_argument("--rekey-all", action="store_true", help="Batch rekey all papers with changed citation keys (dry-run by default)")
     parser.add_argument("--debug-keys", action="store_true", help="Show citation key coverage by source (diagnostics)")
 
     # Options
@@ -548,7 +593,7 @@ def main():
         return
     
     # Commands that need Database + VectorStore only (no Ollama/LLM)
-    if args.cleanup or args.sync_metadata:
+    if args.cleanup or args.sync_metadata or args.rekey_all:
         db = Database(config.database_url)
         db.create_tables()
         vectors = VectorStore(
@@ -568,6 +613,8 @@ def main():
                 cmd_cleanup(sync, args.yes)
             elif args.sync_metadata:
                 cmd_sync_metadata(sync, args.yes)
+            elif args.rekey_all:
+                cmd_rekey_all(sync, args.yes)
         except RuntimeError as e:
             print(f"\n{'='*60}")
             print("  ERROR")

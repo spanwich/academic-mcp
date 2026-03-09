@@ -848,6 +848,10 @@ class ZoteroSync:
 
         with self.db.get_session() as session:
             try:
+                # SQLite enforces FKs per-statement. Temporarily disable
+                # so we can rename the PK across all tables atomically.
+                session.execute(text("PRAGMA foreign_keys=OFF"))
+
                 session.execute(
                     text("UPDATE extractions SET paper_id = :new WHERE paper_id = :old"),
                     {"new": new_citation_key, "old": old_paper_id},
@@ -872,6 +876,9 @@ class ZoteroSync:
                     self.vectors.rename_paper(new_citation_key, old_paper_id)
                 result["message"] = f"Database update failed: {e}"
                 return result
+            finally:
+                # Always re-enable FK enforcement
+                session.execute(text("PRAGMA foreign_keys=ON"))
 
         result["status"] = "rekeyed"
         return result

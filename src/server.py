@@ -489,8 +489,9 @@ async def _search_papers(args: dict):
         
         # Author filter (search in JSON array)
         if author:
-            # SQLite JSON search - check if any author matches
-            q = q.filter(Paper.authors.cast(str).ilike(f"%{author}%"))
+            # SQLite stores JSON arrays as text - use text comparison
+            from sqlalchemy import type_coerce, Text
+            q = q.filter(type_coerce(Paper.authors, Text).ilike(f"%{author}%"))
             filters_applied.append(f"author='{author}'")
         
         # Year filters
@@ -508,7 +509,8 @@ async def _search_papers(args: dict):
         if keywords:
             keyword_conditions = []
             for kw in keywords:
-                keyword_conditions.append(Paper.keywords.cast(str).ilike(f"%{kw}%"))
+                from sqlalchemy import type_coerce, Text
+                keyword_conditions.append(type_coerce(Paper.keywords, Text).ilike(f"%{kw}%"))
             if keyword_conditions:
                 from sqlalchemy import or_
                 q = q.filter(or_(*keyword_conditions))

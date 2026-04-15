@@ -49,7 +49,25 @@ class Settings(BaseSettings):
         default=None,
         alias="ACADEMIC_ZOTERO_PATH"
     )
-    
+
+    # Remote HTTP MCP deployment (used by src/server_http.py)
+    mcp_token: str = Field(
+        default="",
+        alias="ACADEMIC_MCP_TOKEN"
+    )
+    mcp_http_port: int = Field(
+        default=8000,
+        alias="ACADEMIC_MCP_HTTP_PORT"
+    )
+    mcp_http_host: str = Field(
+        default="127.0.0.1",
+        alias="ACADEMIC_MCP_HTTP_HOST"
+    )
+    mcp_remote_mode: bool = Field(
+        default=False,
+        alias="ACADEMIC_MCP_REMOTE_MODE"
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

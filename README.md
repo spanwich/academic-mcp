@@ -314,6 +314,23 @@ For consistent citation keys:
    - Set formula: `auth.lower + "_" + year + "_" + shorttitle(3, 3).lower`
 3. Refresh all keys: Select all → Right-click → Better BibTeX → Refresh BibTeX key
 
+## Remote deployment (Docker, for claude.ai + LAN Claude Code)
+
+The codebase also runs as a Docker stack on a remote host, exposing an HTTP
+MCP server over a cloudflared named tunnel (for claude.ai) and over the LAN
+(for Claude Code on the laptop). Ollama runs on a separate GPU host and is
+reached through an autossh sidecar. `zotero_import.py` runs inside a one-shot
+`importer` container against a manually uploaded Zotero snapshot.
+
+Full runbook — setup, operational workflow, client configuration, troubleshooting —
+lives in [`docker/README.md`](docker/README.md). Helper scripts:
+
+- `scripts/upload_snapshot.sh` — push a tarball of `~/Zotero` to the docker host
+- `scripts/run_import_remote.sh` — trigger a one-shot import on the docker host
+
+The stdio entry point (`start_server.sh`) remains unchanged and is still the
+right setup for Claude Code running locally against a laptop-resident Zotero.
+
 ## License
 
 GPL-3.0-or-later

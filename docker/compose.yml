@@ -1,0 +1,142 @@
+# academic-mcp docker stack.
+#
+# Target host: docker farm (ford@192.168.40.200, docker group).
+# Deployment layout on host:
+#   /srv/academic-mcp/
+#     ├── compose.yml   (this file, symlinked from repo)
+#     ├── .env          (ACADEMIC_MCP_TOKEN, CF_TUNNEL_TOKEN, model names)
+#     ├── secrets/
+#     │   └── gpu_farm_id_ed25519   (0400, SSH key for ollama-tunnel)
+#     ├── inbox/                     (landing zone for upload_snapshot.sh tarballs)
+#     ├── mirror/zotero/             (atomic-swapped Zotero snapshot, ro into containers)
+#     └── data/                      (papers.db + chroma/, rw into mcp + importer)
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d mcp ollama-tunnel cloudflared
+#   docker compose run --rm importer --collection "seL4 verification"
+#   docker compose restart mcp        # after an import, to reopen papers.db/chroma
+#
+# Note: the importer service is under a compose profile so it does not start
+# automatically with `docker compose up`. It is run on demand via
+# `docker compose run --rm importer ...`.
+
+services:
+
+  # ── MCP server (long-running) ───────────────────────────────────────────
+  mcp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: academic-mcp:latest
+    container_name: academic-mcp
+    restart: unless-stopped
+    depends_on:
+      - ollama-tunnel
+    environment:
+      ACADEMIC_MCP_TOKEN: ${ACADEMIC_MCP_TOKEN:?ACADEMIC_MCP_TOKEN is required}
+      ACADEMIC_MCP_HTTP_HOST: 0.0.0.0
+      ACADEMIC_MCP_HTTP_PORT: 8000
+      ACADEMIC_DATABASE_URL: sqlite:////data/papers.db
+      ACADEMIC_CHROMA_PERSIST_DIR: /data/chroma
+      ACADEMIC_ZOTERO_PATH: /mirror/zotero
+      ACADEMIC_LLM_MODEL: ${ACADEMIC_LLM_MODEL:-qwen3:8b}
+      ACADEMIC_EMBEDDING_MODEL: ${ACADEMIC_EMBEDDING_MODEL:-nomic-embed-text}
+      ACADEMIC_EMBEDDING_BACKEND: ollama
+      # Two env names on purpose: the project config reads ACADEMIC_OLLAMA_HOST,
+      # but src/models/vectors.py:137 calls ollama.embed() which defers to the
+      # upstream ollama Python client's OLLAMA_HOST var. Set both.
+      ACADEMIC_OLLAMA_HOST: http://ollama-tunnel:11434
+      OLLAMA_HOST: http://ollama-tunnel:11434
+    volumes:
+      - /srv/academic-mcp/mirror:/mirror:ro
+      - /srv/academic-mcp/data:/data
+    ports:
+      # LAN-exposed for Claude Code on the laptop. The cloudflared container
+      # also reaches this port over the compose network for claude.ai traffic.
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Ollama tunnel sidecar (autossh → GPU farm) ──────────────────────────
+  ollama-tunnel:
+    build:
+      context: ..
+      dockerfile: docker/tunnel.Dockerfile
+    image: academic-mcp-tunnel:latest
+    container_name: academic-mcp-tunnel
+    restart: unless-stopped
+    # autossh options:
+    #   -M 0                 : rely on ServerAliveInterval instead of monitoring port
+    #   -N                   : do not execute a remote command
+    #   ServerAliveInterval  : 30s keepalive so idle connections don't drop
+    #   ExitOnForwardFailure : die fast if the bind fails; autossh restarts us
+    #   StrictHostKeyChecking=accept-new : auto-TOFU the GPU farm's host key on first run
+    command:
+      - "-M"
+      - "0"
+      - "-N"
+      - "-o"
+      - "ServerAliveInterval=30"
+      - "-o"
+      - "ServerAliveCountMax=3"
+      - "-o"
+      - "ExitOnForwardFailure=yes"
+      - "-o"
+      - "StrictHostKeyChecking=accept-new"
+      - "-o"
+      - "UserKnownHostsFile=/root/.ssh/known_hosts"
+      - "-i"
+      - "/root/.ssh/id_ed25519"
+      - "-L"
+      - "0.0.0.0:11434:127.0.0.1:11434"
+      - "iamfo470@deep.otago.ac.nz"
+    volumes:
+      - /srv/academic-mcp/secrets/gpu_farm_id_ed25519:/root/.ssh/id_ed25519:ro
+      # known_hosts is writable so autossh can TOFU on first run and persist
+      # the GPU farm's host key across restarts.
+      - /srv/academic-mcp/secrets/tunnel_known_hosts:/root/.ssh/known_hosts
+
+  # ── Importer (one-shot, profile "import") ───────────────────────────────
+  importer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: academic-mcp:latest
+    profiles: ["import"]
+    depends_on:
+      - ollama-tunnel
+    environment:
+      ACADEMIC_DATABASE_URL: sqlite:////data/papers.db
+      ACADEMIC_CHROMA_PERSIST_DIR: /data/chroma
+      ACADEMIC_ZOTERO_PATH: /mirror/zotero
+      ACADEMIC_LLM_MODEL: ${ACADEMIC_LLM_MODEL:-qwen3:8b}
+      ACADEMIC_EMBEDDING_MODEL: ${ACADEMIC_EMBEDDING_MODEL:-nomic-embed-text}
+      ACADEMIC_EMBEDDING_BACKEND: ollama
+      ACADEMIC_OLLAMA_HOST: http://ollama-tunnel:11434
+      OLLAMA_HOST: http://ollama-tunnel:11434
+    volumes:
+      - /srv/academic-mcp/mirror:/mirror:ro
+      - /srv/academic-mcp/data:/data
+    # Override the image's default CMD: the operator passes zotero_import args
+    # via `docker compose run --rm importer --collection "..."`.
+    entrypoint: ["python", "/app/zotero_import.py"]
+    command: []
+
+  # ── Cloudflared named tunnel (claude.ai public entry) ───────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: academic-mcp-cloudflared
+    restart: unless-stopped
+    depends_on:
+      - mcp
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CF_TUNNEL_TOKEN}"]
+    environment:
+      # Tunnel config is encoded in the token; the tunnel is created
+      # out-of-band via `cloudflared tunnel create academic-mcp` and pointed
+      # at http://mcp:8000 through the Cloudflare dashboard.
+      CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:?CF_TUNNEL_TOKEN is required}

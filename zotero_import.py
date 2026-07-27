@@ -653,7 +653,13 @@ def main():
     print(f"Using LLM model: {model}")
 
     pdf_processor = PDFProcessor()
-    section_detector = SectionDetector(model=model, host=config.ollama_host)
+    section_detector = SectionDetector(
+        model=model,
+        host=config.ollama_host,
+        num_predict=config.section_detection_num_predict,
+        num_ctx=config.section_detection_num_ctx,
+        preview_chars=config.section_detection_preview_chars,
+    )
     chunker = PageChunker()
     extractor = SectionExtractor(model=model, host=config.ollama_host)
     keyword_extractor = KeywordExtractor(model=model, host=config.ollama_host)

@@ -89,10 +89,16 @@ class SectionDetector:
     def __init__(
         self,
         model: str = "qwen2.5:3b",
-        host: str = "http://localhost:11434"
+        host: str = "http://localhost:11434",
+        num_predict: int = -1,
+        num_ctx: int = 16384,
+        preview_chars: int = 3000
     ):
         self.model = model
         self.client = ollama.Client(host=host)
+        self.num_predict = num_predict
+        self.num_ctx = num_ctx
+        self.preview_chars = preview_chars
     
     def detect_sections(
         self, 
@@ -175,7 +181,7 @@ class SectionDetector:
         
         for page_idx in pages_to_include:
             page = doc.pages[page_idx]
-            preview = page.text[:800]  # First 800 chars
+            preview = page.text[:self.preview_chars]
             lines.append(f"=== PAGE {page.page_number} ===")
             lines.append(preview)
             lines.append("")
@@ -223,11 +229,20 @@ IMPORTANT:
 
 Return ONLY valid JSON with "sections" array."""
 
+        # think=False disables the <think>...</think> prelude that Qwen3
+        # family models emit by default. Without it, the prelude violates
+        # `format="json"` grammar enforcement and Ollama returns an empty
+        # response. No-op for non-thinking models (gemma4, qwen2.5 etc.).
         response = self.client.generate(
             model=self.model,
             prompt=prompt,
             format="json",
-            options={"temperature": 0.1, "num_predict": 2000}
+            think=False,
+            options={
+                "temperature": 0.1,
+                "num_predict": self.num_predict,
+                "num_ctx": self.num_ctx,
+            }
         )
         
         # Parse response (handle both dict and object response formats)

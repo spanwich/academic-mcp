@@ -43,7 +43,35 @@ class Settings(BaseSettings):
         default="http://localhost:11434",
         alias="ACADEMIC_OLLAMA_HOST"
     )
-    
+
+    # Max output tokens for the section-detection LLM call.
+    # -1 disables the cap (grammar-enforced JSON guarantees validity if the
+    # model is allowed to finish). Larger models like gemma4:26b hit a hard
+    # 2000-token ceiling with long papers and produce truncated JSON, which
+    # falls back to an all-"unknown" page grouping.
+    section_detection_num_predict: int = Field(
+        default=-1,
+        alias="ACADEMIC_SECTION_DETECTION_NUM_PREDICT"
+    )
+
+    # Context window for the section-detection LLM call. Ollama defaults to
+    # 2048, which silently truncates the prompt and makes detection fail.
+    # 16384 fits ~18 pages × 3000-char previews plus scaffold with headroom
+    # for output; raise for longer documents or larger previews.
+    section_detection_num_ctx: int = Field(
+        default=16384,
+        alias="ACADEMIC_SECTION_DETECTION_NUM_CTX"
+    )
+
+    # Per-page preview length fed to the section detector. 800 chars often
+    # misses section headings (page header/footer + continuing paragraph from
+    # previous page push the heading past the cutoff). 3000 comfortably
+    # captures the start + first heading on a typical academic page.
+    section_detection_preview_chars: int = Field(
+        default=3000,
+        alias="ACADEMIC_SECTION_DETECTION_PREVIEW_CHARS"
+    )
+
     # Zotero
     zotero_path: Path | None = Field(
         default=None,
